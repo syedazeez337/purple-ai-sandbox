@@ -1,0 +1,94 @@
+name: "ai-development"
+description: "Development policy with balanced security for AI agent testing and development."
+
+filesystem:
+  immutable_paths:
+    - host_path: "/usr/bin"
+      sandbox_path: "/usr/bin"
+    - host_path: "/lib"
+      sandbox_path: "/lib"
+    - host_path: "/lib64"
+      sandbox_path: "/lib64"
+  scratch_paths:
+    - "/tmp"
+    - "/var/tmp"
+  output_paths:
+    - host_path: "/home/user/ai-outputs"
+      sandbox_path: "/output"
+  working_dir: "/home/agent"
+
+syscalls:
+  default_deny: true
+  allow:
+    - "read"
+    - "write"
+    - "openat"
+    - "close"
+    - "fstat"
+    - "newfstatat"
+    - "lseek"
+    - "mmap"
+    - "mprotect"
+    - "munmap"
+    - "brk"
+    - "access"
+    - "execve"
+    - "exit_group"
+    - "getrandom"
+    - "clock_gettime"
+    - "gettimeofday"
+    - "time"
+    - "nanosleep"
+    - "fcntl"
+    - "dup"
+    - "dup2"
+    - "pipe"
+    - "pipe2"
+    - "socket"
+    - "connect"
+    - "bind"
+    - "listen"
+    - "accept"
+    - "getsockname"
+    - "getpeername"
+    - "setsockopt"
+    - "getsockopt"
+  deny:
+    - "mount"
+    - "unmount"
+    - "reboot"
+    - "kexec_load"
+    - "bpf"
+    - "ptrace"
+    - "syslog"
+
+resources:
+  cpu_shares: 0.7
+  memory_limit_bytes: "4G"
+  pids_limit: 200
+  block_io_limit: "200MBps"
+  session_timeout_seconds: 7200
+
+capabilities:
+  default_drop: true
+  add:
+    - "CAP_NET_BIND_SERVICE"
+
+network:
+  isolated: false
+  allow_outgoing:
+    - "80"
+    - "443"
+    - "53"
+    - "8080"
+  allow_incoming:
+    - "8080"
+
+audit:
+  enabled: true
+  log_path: "/var/log/purple/ai-development.log"
+  detail_level:
+    - "syscall"
+    - "filesystem"
+    - "resource"
+    - "network"
