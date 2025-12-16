@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["apply_seccomp_filter","get_syscall_number","resolve_syscall_names"]};

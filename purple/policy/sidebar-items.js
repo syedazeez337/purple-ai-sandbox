@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["compiler","parser"],"struct":["AuditPolicy","CapabilityPolicy","FilesystemPolicy","NetworkPolicy","PathMapping","Policy","ResourcePolicy","SyscallPolicy"]};

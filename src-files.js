@@ -1,0 +1,2 @@
+createSrcSidebar('[["purple",["",[["policy",[],["compiler.rs","mod.rs","parser.rs"]],["sandbox",[],["cgroups.rs","linux_namespaces.rs","mod.rs","seccomp.rs"]]],["cli.rs","error.rs","logging.rs","main.rs"]]]]');
+//{"start":19,"fragment_lengths":[187]}
