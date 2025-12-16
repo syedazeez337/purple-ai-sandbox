@@ -6,7 +6,7 @@ pub struct Cli {
     /// Set the logging level (trace, debug, info, warn, error)
     #[arg(short, long, global = true, default_value = "info")]
     pub log_level: String,
-    
+
     #[command(subcommand)]
     pub command: Commands,
 }

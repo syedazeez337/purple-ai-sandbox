@@ -1,18 +1,19 @@
 // purple/src/logging.rs
 
 use log::{LevelFilter, SetLoggerError};
-use std::sync::Once;
 use std::io::Write;
+use std::sync::Once;
 
 /// Initialize the logging system with the specified log level
 pub fn init_logging(level: LevelFilter) -> Result<(), SetLoggerError> {
     static INIT: Once = Once::new();
-    
+
     INIT.call_once(|| {
         env_logger::Builder::new()
             .filter_level(level)
             .format(|buf, record| {
-                writeln!(buf,
+                writeln!(
+                    buf,
                     "[{}] {} - {}",
                     buf.timestamp_millis(),
                     record.level(),
@@ -21,7 +22,7 @@ pub fn init_logging(level: LevelFilter) -> Result<(), SetLoggerError> {
             })
             .init();
     });
-    
+
     Ok(())
 }
 

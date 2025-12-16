@@ -3,8 +3,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-pub mod parser;
-pub mod compiler; // Add this line
+pub mod compiler;
+pub mod parser; // Add this line
 
 /// Top-level policy configuration for an AI agent's execution.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
