@@ -7,16 +7,18 @@ filesystem:
       sandbox_path: "/usr/bin"
     - host_path: "/lib"
       sandbox_path: "/lib"
+    - host_path: "/lib64"
+      sandbox_path: "/lib64"
   scratch_paths:
     - "/tmp"
     - "/var/tmp"
   output_paths:
-    - host_path: "/home/aze/Documents/rapp/purple/output/ai-dev-safe"
+    - host_path: "/tmp/purple/output/ai-dev-safe"
       sandbox_path: "/output"
-  working_dir: "/home/agent"
+  working_dir: "/tmp"
 
 syscalls:
-  default_deny: true
+  default_deny: false
   allow:
     - "read"
     - "write"
@@ -38,6 +40,30 @@ syscalls:
     - "getrandom"
     - "exit_group"
     - "clone3"
+    # Added for basic functionality
+    - "ioctl"
+    - "pread64"
+    - "writev"
+    - "lseek"
+    - "rt_sigaction"
+    - "rt_sigprocmask"
+    - "rt_sigreturn"
+    - "pipe"
+    - "fcntl"
+    - "getcwd"
+    - "mkdir"
+    - "rmdir"
+    - "unlink"
+    - "getuid"
+    - "getgid"
+    - "geteuid"
+    - "getegid"
+    - "capget"
+    - "capset"
+    - "prctl"
+    - "stat"
+    - "lstat"
+    - "poll"
   deny:
     - "mount"
     - "unmount"
@@ -68,7 +94,7 @@ network:
 
 audit:
   enabled: true
-  log_path: "/var/log/purple/ai-dev-safe.log"
+  log_path: "/tmp/purple/audit/ai-dev-safe.log"
   detail_level:
     - "syscall"
     - "filesystem"

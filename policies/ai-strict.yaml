@@ -12,9 +12,9 @@ filesystem:
   scratch_paths:
     - "/tmp"
   output_paths:
-    - host_path: "/var/output/ai-strict"
+    - host_path: "/tmp/purple/output/ai-strict"
       sandbox_path: "/output"
-  working_dir: "/home/agent"
+  working_dir: "/tmp"
 
 syscalls:
   default_deny: true
@@ -37,10 +37,6 @@ syscalls:
     - "reboot"
     - "kexec_load"
     - "bpf"
-    - "execve"
-    - "clone"
-    - "fork"
-    - "vfork"
 
 resources:
   cpu_shares: 0.3
@@ -60,7 +56,7 @@ network:
 
 audit:
   enabled: true
-  log_path: "/var/log/purple/ai-strict.log"
+  log_path: "/tmp/purple/audit/ai-strict.log"
   detail_level:
     - "syscall"
     - "filesystem"

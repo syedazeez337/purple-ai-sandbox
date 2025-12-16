@@ -12,12 +12,12 @@ fn test_syscall_number_mapping() {
     assert_eq!(get_syscall_number("execve"), Some(59));
     assert_eq!(get_syscall_number("exit_group"), Some(231));
     assert_eq!(get_syscall_number("clone3"), Some(435));
-    
+
     // Test some network-related syscalls
     assert_eq!(get_syscall_number("socket"), Some(41));
     assert_eq!(get_syscall_number("connect"), Some(42));
     assert_eq!(get_syscall_number("bind"), Some(49));
-    
+
     // Test unknown syscall
     assert_eq!(get_syscall_number("nonexistent_syscall"), None);
 }
@@ -32,19 +32,19 @@ fn test_syscall_name_resolution() {
         "execve".to_string(),
         "unknown_syscall".to_string(), // This should be ignored
     ];
-    
+
     let syscall_numbers = resolve_syscall_names(&syscall_names);
-    
+
     // Should contain the known syscalls
-    assert!(syscall_numbers.contains(&0));   // read
-    assert!(syscall_numbers.contains(&1));   // write
+    assert!(syscall_numbers.contains(&0)); // read
+    assert!(syscall_numbers.contains(&1)); // write
     assert!(syscall_numbers.contains(&257)); // openat
-    assert!(syscall_numbers.contains(&3));   // close
-    assert!(syscall_numbers.contains(&59));  // execve
-    
+    assert!(syscall_numbers.contains(&3)); // close
+    assert!(syscall_numbers.contains(&59)); // execve
+
     // Should not contain unknown syscall
     assert!(!syscall_numbers.contains(&-1));
-    
+
     // Should have exactly 5 entries (unknown one is ignored)
     assert_eq!(syscall_numbers.len(), 5);
 }
@@ -58,18 +58,18 @@ fn test_syscall_set_ordering() {
         "execve".to_string(),
         "exit".to_string(),
     ];
-    
+
     let numbers = resolve_syscall_names(&names);
-    
+
     // Convert to vector to check ordering
     let number_vec: Vec<i64> = numbers.into_iter().collect();
-    
+
     // Should be sorted
     assert!(number_vec.windows(2).all(|w| w[0] <= w[1]));
-    
+
     // Should contain the expected syscalls
-    assert!(number_vec.contains(&0));   // read
-    assert!(number_vec.contains(&1));   // write
-    assert!(number_vec.contains(&60));  // exit
-    assert!(number_vec.contains(&59));  // execve
+    assert!(number_vec.contains(&0)); // read
+    assert!(number_vec.contains(&1)); // write
+    assert!(number_vec.contains(&60)); // exit
+    assert!(number_vec.contains(&59)); // execve
 }

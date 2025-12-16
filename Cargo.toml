@@ -18,10 +18,11 @@ log = "0.4.29"
 nix = { version = "0.30.1", features = ["sched", "user", "mount", "fs"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_yaml = "0.9.34"
+libseccomp = "0.2.0"
+cgroups-rs = "0.3.0"
 
 [dev-dependencies]
-cargo-tarpaulin = "0.26.0"
-cargo-audit = "0.18.0"
+tempfile = "3.10.0"
 
 [package.metadata.docs.rs]
 features = ["all"]

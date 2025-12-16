@@ -3,8 +3,13 @@
 use std::fmt;
 use std::io;
 
+use libseccomp::error::SeccompError;
+
 /// Custom error type for Purple sandbox operations
+/// Note: Some variants may be unused currently but kept for completeness
 #[derive(Debug)]
+#[allow(dead_code)]
+#[allow(clippy::enum_variant_names)] // Error suffix is intentional for clarity
 pub enum PurpleError {
     /// IO-related errors
     IoError(io::Error),
@@ -54,6 +59,48 @@ impl fmt::Display for PurpleError {
     }
 }
 
+/// Enhanced error context for better debugging
+/// Note: Kept for future enhanced error reporting
+#[derive(Debug)]
+#[allow(dead_code)]
+pub struct EnhancedError {
+    pub error: PurpleError,
+    pub context: String,
+    pub timestamp: std::time::SystemTime,
+    pub backtrace: Option<String>,
+}
+
+#[allow(dead_code)]
+impl EnhancedError {
+    pub fn new(error: PurpleError, context: &str) -> Self {
+        Self {
+            error,
+            context: context.to_string(),
+            timestamp: std::time::SystemTime::now(),
+            backtrace: None,
+        }
+    }
+
+    pub fn with_backtrace(mut self) -> Self {
+        self.backtrace = Some(format!("{:?}", std::backtrace::Backtrace::capture()));
+        self
+    }
+}
+
+impl fmt::Display for EnhancedError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "[{:?}] ERROR in {}: {}",
+            self.timestamp, self.context, self.error
+        )?;
+        if let Some(backtrace) = &self.backtrace {
+            write!(f, "\nBacktrace: {}", backtrace)?;
+        }
+        Ok(())
+    }
+}
+
 impl std::error::Error for PurpleError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
@@ -78,6 +125,12 @@ impl From<String> for PurpleError {
 impl From<&str> for PurpleError {
     fn from(err: &str) -> Self {
         PurpleError::SandboxError(err.to_string())
+    }
+}
+
+impl From<SeccompError> for PurpleError {
+    fn from(err: SeccompError) -> Self {
+        PurpleError::SyscallError(format!("Seccomp error: {}", err))
     }
 }
 

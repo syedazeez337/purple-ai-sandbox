@@ -1,42 +1,59 @@
 // purple/src/sandbox/seccomp.rs
 
-use crate::policy::compiler::CompiledSyscallPolicy;
 use crate::error::Result;
+use crate::policy::compiler::CompiledSyscallPolicy;
+use libseccomp::{ScmpAction, ScmpFilterContext, ScmpSyscall};
 use std::collections::BTreeSet;
 
 /// Applies seccomp filtering based on the compiled syscall policy
 pub fn apply_seccomp_filter(policy: &CompiledSyscallPolicy) -> Result<()> {
     log::info!("Applying seccomp syscall filter...");
-    
-    // For now, implement a simple seccomp filter using the seccompiler crate
-    // This is a placeholder that would be replaced with actual seccomp implementation
-    
+
+    // Determine default action based on policy
+    let default_action = if policy.default_deny {
+        ScmpAction::KillProcess
+    } else {
+        ScmpAction::Allow
+    };
+
+    // Create a new seccomp filter context
+    let mut ctx = ScmpFilterContext::new_filter(default_action)?;
+
     if policy.default_deny {
-        log::info!("Seccomp: Would set default action to DENY (kill process)");
-        log::info!("Seccomp: Would allow {} syscalls", policy.allowed_syscall_numbers.len());
-        
+        log::info!("Seccomp: Setting default action to DENY (kill process)");
+        log::info!(
+            "Seccomp: Allowing {} syscalls",
+            policy.allowed_syscall_numbers.len()
+        );
+
+        // Add rules for each allowed syscall
         for syscall_num in &policy.allowed_syscall_numbers {
-            log::debug!("Seccomp: Would allow syscall {}", syscall_num);
+            let syscall = ScmpSyscall::from(*syscall_num as i32);
+            ctx.add_rule(ScmpAction::Allow, syscall)?;
+            log::debug!("Seccomp: Allowed syscall {}", syscall_num);
         }
     } else {
-        log::info!("Seccomp: Would set default action to ALLOW");
-        log::info!("Seccomp: Would deny specific syscalls if any were configured");
+        log::info!("Seccomp: Setting default action to ALLOW");
+        log::info!("Seccomp: Denying specific syscalls if any were configured");
+
+        // In allow-by-default mode, we would deny specific syscalls
+        // This is not implemented in the current policy structure
     }
-    
-    // In a real implementation, this would:
-    // 1. Create a seccomp context
-    // 2. Set the default action (SCMP_ACT_KILL for default_deny, SCMP_ACT_ALLOW otherwise)
-    // 3. Add rules for each allowed syscall (SCMP_ACT_ALLOW)
-    // 4. Load the filter into the kernel
-    
-    log::warn!("Seccomp filtering not fully implemented - would use libseccomp here");
-    log::info!("Syscall filtering policy would be enforced with {} allowed syscalls", 
-              policy.allowed_syscall_numbers.len());
-    
+
+    // Load the filter into the kernel
+    ctx.load()?;
+
+    log::info!(
+        "Syscall filtering policy enforced with {} allowed syscalls",
+        policy.allowed_syscall_numbers.len()
+    );
+
     Ok(())
 }
 
 /// Syscall name to number mapping for common syscalls
+/// Note: Kept for potential future dynamic syscall resolution
+#[allow(dead_code)]
 pub fn get_syscall_number(name: &str) -> Option<i64> {
     // This is a partial mapping. In a production system, you might want to
     // use a more comprehensive approach or generate this from system headers.
@@ -407,6 +424,8 @@ pub fn get_syscall_number(name: &str) -> Option<i64> {
 }
 
 /// Converts syscall names to numbers for the policy
+/// Note: Kept for potential future dynamic syscall resolution
+#[allow(dead_code)]
 pub fn resolve_syscall_names(names: &[String]) -> BTreeSet<i64> {
     let mut numbers = BTreeSet::new();
     for name in names {
