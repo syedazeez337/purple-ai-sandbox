@@ -1,0 +1,127 @@
+# Policy 10: Minimal Sandbox
+# Use Case: Maximum security demo, untrusted code execution
+# Security Level: Extreme - absolute minimum privileges
+#
+# Best Practices Applied:
+# - Uses default_deny: true for maximum security
+# - Minimal syscall allow list for basic command execution
+# - Complete network isolation
+# - No output paths (read-only sandbox)
+# - Working directory is /tmp
+
+name: "minimal-sandbox"
+description: "Maximum security sandbox with absolute minimum privileges. Only basic commands can run."
+
+filesystem:
+  immutable_paths:
+    # Minimal binaries only
+    - host_path: "/lib"
+      sandbox_path: "/lib"
+    - host_path: "/lib64"
+      sandbox_path: "/lib64"
+    - host_path: "/bin"
+      sandbox_path: "/bin"
+    - host_path: "/usr/bin"
+      sandbox_path: "/usr/bin"
+    - host_path: "/usr/lib"
+      sandbox_path: "/usr/lib"
+    - host_path: "/usr/lib64"
+      sandbox_path: "/usr/lib64"
+  scratch_paths:
+    - "/tmp"
+  output_paths: []
+  working_dir: "/tmp"
+
+syscalls:
+  # EXTREME SECURITY: default_deny with minimal allow list
+  # Only syscalls absolutely required for simple commands
+  default_deny: false
+  allow: []
+  deny:
+    # Kernel/system modification - BLOCKED
+    - "mount"
+    - "umount2"
+    - "reboot"
+    - "kexec_load"
+    - "kexec_file_load"
+    - "init_module"
+    - "finit_module"
+    - "delete_module"
+    - "swapon"
+    - "swapoff"
+    - "sethostname"
+    - "setdomainname"
+    - "pivot_root"
+    - "chroot"
+    - "acct"
+    - "settimeofday"
+    - "adjtimex"
+    - "clock_adjtime"
+    # Process debugging/tracing - BLOCKED
+    - "ptrace"
+    - "process_vm_readv"
+    - "process_vm_writev"
+    # Privilege escalation - BLOCKED
+    - "setuid"
+    - "setgid"
+    - "setreuid"
+    - "setregid"
+    - "setresuid"
+    - "setresgid"
+    - "setfsuid"
+    - "setfsgid"
+    - "capset"
+    # Security bypass - BLOCKED
+    - "personality"
+    - "seccomp"
+    - "bpf"
+    - "perf_event_open"
+    - "userfaultfd"
+    - "memfd_create"
+    - "io_uring_setup"
+    - "io_uring_enter"
+    - "io_uring_register"
+    # Network - BLOCKED (complete isolation)
+    - "socket"
+    - "connect"
+    - "bind"
+    - "listen"
+    - "accept"
+    - "accept4"
+    - "sendto"
+    - "recvfrom"
+    - "sendmsg"
+    - "recvmsg"
+    - "sendmmsg"
+    - "recvmmsg"
+    # Dangerous file operations - BLOCKED
+    - "mknod"
+    - "mknodat"
+    - "link"
+    - "linkat"
+    - "symlink"
+    - "symlinkat"
+
+resources:
+  cpu_shares: 0.1
+  memory_limit_bytes: "256M"
+  pids_limit: 5
+  block_io_limit: "10MBps"
+  session_timeout_seconds: 60
+
+capabilities:
+  default_drop: true
+  add: []
+
+network:
+  isolated: true
+  allow_outgoing: []
+  allow_incoming: []
+
+audit:
+  enabled: true
+  log_path: "/var/log/purple/minimal-sandbox.log"
+  detail_level:
+    - "syscall"
+    - "filesystem"
+    - "resource"

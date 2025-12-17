@@ -1,0 +1,102 @@
+# Policy 7: Security Scanner Agent
+# Use Case: Vulnerability scanning, SAST/DAST tools, dependency auditing
+# Security Level: High - needs broad read access for scanning
+#
+# Best Practices Applied:
+# - Uses default_deny: false with explicit deny list
+# - Output paths use /tmp/purple/
+# - Working directory is /tmp
+
+name: "security-scanner-agent"
+description: "Sandbox for security scanning tools. Allows broad read access with strict write controls."
+
+filesystem:
+  immutable_paths:
+    - host_path: "/usr"
+      sandbox_path: "/usr"
+    - host_path: "/lib"
+      sandbox_path: "/lib"
+    - host_path: "/lib64"
+      sandbox_path: "/lib64"
+    - host_path: "/bin"
+      sandbox_path: "/bin"
+    - host_path: "/etc/ssl"
+      sandbox_path: "/etc/ssl"
+    - host_path: "/etc/pki"
+      sandbox_path: "/etc/pki"
+  scratch_paths:
+    - "/tmp"
+    - "/var/tmp"
+  output_paths:
+    - host_path: "/tmp/purple/output/security-reports"
+      sandbox_path: "/reports"
+    - host_path: "/tmp/purple/output/vulnerability-db"
+      sandbox_path: "/vuln-db"
+    - host_path: "/tmp/purple/target-codebase"
+      sandbox_path: "/codebase"
+  working_dir: "/tmp"
+
+syscalls:
+  default_deny: false
+  allow: []
+  deny:
+    # Kernel/system modification
+    - "mount"
+    - "umount2"
+    - "reboot"
+    - "kexec_load"
+    - "kexec_file_load"
+    - "init_module"
+    - "finit_module"
+    - "delete_module"
+    - "swapon"
+    - "swapoff"
+    - "sethostname"
+    - "setdomainname"
+    - "pivot_root"
+    - "chroot"
+    # Process debugging/tracing
+    - "ptrace"
+    - "process_vm_readv"
+    - "process_vm_writev"
+    # Privilege escalation
+    - "setuid"
+    - "setgid"
+    - "setreuid"
+    - "setregid"
+    - "setresuid"
+    - "setresgid"
+    - "capset"
+    # Security bypass
+    - "personality"
+    - "seccomp"
+    - "bpf"
+    - "perf_event_open"
+    - "userfaultfd"
+    - "io_uring_setup"
+    - "io_uring_enter"
+    - "io_uring_register"
+
+resources:
+  cpu_shares: 0.5
+  memory_limit_bytes: "4G"
+  pids_limit: 100
+  block_io_limit: "100MBps"
+  session_timeout_seconds: 7200
+
+capabilities:
+  default_drop: true
+  add: []
+
+network:
+  isolated: false
+  allow_outgoing:
+    - "443"  # For CVE database updates
+  allow_incoming: []
+
+audit:
+  enabled: true
+  log_path: "/var/log/purple/security-scanner.log"
+  detail_level:
+    - "syscall"
+    - "filesystem"

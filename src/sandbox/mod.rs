@@ -357,6 +357,17 @@ impl Sandbox {
             log::info!("No resource limits specified in policy, skipping cgroup validation");
         }
 
+        // Setup cgroups BEFORE entering user namespace (cgroups require real root)
+        let cgroup_manager = if self.policy.resources.has_resource_limits() {
+            log::info!("Setting up cgroups before entering namespaces...");
+            let manager = cgroups::CgroupManager::new(&self.sandbox_id);
+            manager.setup_cgroups(&self.policy.resources)?;
+            log::info!("✓ Cgroups configured with resource limits");
+            Some(manager)
+        } else {
+            None
+        };
+
         // 1. Setup user namespace first (required for privilege management)
         log::info!("Setting up user namespace...");
         let (_sandbox_uid, _sandbox_gid) =
@@ -386,6 +397,18 @@ impl Sandbox {
         match unsafe { fork() } {
             Ok(ForkResult::Parent { child }) => {
                 log::info!("Parent: Waiting for child PID {}", child);
+
+                // Add child to cgroup BEFORE it continues execution
+                if let Some(ref manager) = cgroup_manager {
+                    log::info!("Parent: Adding child PID {} to cgroup", child);
+                    if let Err(e) = manager.add_pid(child.as_raw() as u64) {
+                        log::error!("Parent: Failed to add child to cgroup: {}", e);
+                        // Kill the child and return error
+                        let _ = nix::sys::signal::kill(child, nix::sys::signal::Signal::SIGKILL);
+                        return Err(e);
+                    }
+                    log::info!("Parent: ✓ Child added to cgroup");
+                }
 
                 // Set up signal handler for parent to handle graceful termination
                 self.setup_parent_signal_handlers(child);
@@ -435,11 +458,8 @@ impl Sandbox {
                     self.child_cleanup_and_exit(1);
                 }
 
-                // 7. Caps, Seccomp, Resources
-                if let Err(e) = self.apply_resource_limits() {
-                    log::error!("Resource limits failed: {}", e);
-                    self.child_cleanup_and_exit(1);
-                }
+                // 7. Caps, Seccomp (Resource limits already set up by parent via cgroups)
+                log::info!("Child: Resource limits already applied via parent cgroup");
 
                 if let Err(e) = self.drop_capabilities() {
                     log::error!("Drop capabilities failed: {}", e);
@@ -520,6 +540,28 @@ impl Sandbox {
                         e
                     ))
                 })?;
+            }
+
+            // Create the mount point (file or directory)
+            if host_path.is_dir() {
+                fs::create_dir_all(&full_sandbox_path).map_err(|e| {
+                    PurpleError::FilesystemError(format!(
+                        "Failed to create mount point directory {}: {}",
+                        full_sandbox_path.display(),
+                        e
+                    ))
+                })?;
+            } else {
+                // Assume it's a file - create empty file as mount point
+                if !full_sandbox_path.exists() {
+                    fs::File::create(&full_sandbox_path).map_err(|e| {
+                        PurpleError::FilesystemError(format!(
+                            "Failed to create mount point file {}: {}",
+                            full_sandbox_path.display(),
+                            e
+                        ))
+                    })?;
+                }
             }
 
             log::info!(
@@ -690,6 +732,7 @@ impl Sandbox {
     }
 
     /// Applies resource limits using cgroups
+    #[allow(dead_code)]
     fn apply_resource_limits(&self) -> Result<()> {
         log::info!("Applying resource limits using cgroups...");
 
@@ -711,6 +754,7 @@ impl Sandbox {
     }
 
     /// Adds the current process to the specified cgroup
+    #[allow(dead_code)]
     fn add_process_to_cgroup(&self, cgroup_manager: &cgroups::CgroupManager) -> Result<()> {
         log::info!("Adding current process to cgroup...");
 
@@ -741,6 +785,7 @@ impl Sandbox {
     }
 
     /// Verifies that the current process is in the specified cgroup
+    #[allow(dead_code)]
     fn verify_process_in_cgroup(&self, cgroup_manager: &cgroups::CgroupManager) -> Result<()> {
         log::debug!("Verifying process is in cgroup...");
 
@@ -1643,17 +1688,51 @@ impl Sandbox {
             PurpleError::FilesystemError(format!("Failed to create /sys directory: {}", e))
         })?;
 
-        // Mount sysfs as read-only with security restrictions
-        mount(
+        // Try to mount sysfs directly first (works when not in user namespace)
+        let mount_result = mount(
             Some("sysfs"),
             &sys_path,
             Some("sysfs"),
             MsFlags::MS_RDONLY | MsFlags::MS_NOSUID | MsFlags::MS_NODEV | MsFlags::MS_NOEXEC,
             None::<&str>,
-        )
-        .map_err(|e| PurpleError::FilesystemError(format!("Failed to mount secure /sys: {}", e)))?;
+        );
 
-        log::info!("Secure read-only /sys filesystem mounted with full restrictions");
+        if mount_result.is_ok() {
+            log::info!("Secure read-only /sys filesystem mounted with full restrictions");
+            return Ok(());
+        }
+
+        // If direct mount fails (e.g., in user namespace), bind-mount host's /sys read-only
+        log::info!("Direct sysfs mount failed, trying bind mount of host /sys");
+
+        // First bind mount
+        mount(
+            Some("/sys"),
+            &sys_path,
+            None::<&str>,
+            MsFlags::MS_BIND | MsFlags::MS_REC,
+            None::<&str>,
+        )
+        .map_err(|e| PurpleError::FilesystemError(format!("Failed to bind mount /sys: {}", e)))?;
+
+        // Then remount read-only
+        mount(
+            None::<&str>,
+            &sys_path,
+            None::<&str>,
+            MsFlags::MS_BIND
+                | MsFlags::MS_REMOUNT
+                | MsFlags::MS_RDONLY
+                | MsFlags::MS_NOSUID
+                | MsFlags::MS_NODEV
+                | MsFlags::MS_NOEXEC,
+            None::<&str>,
+        )
+        .map_err(|e| {
+            PurpleError::FilesystemError(format!("Failed to remount /sys read-only: {}", e))
+        })?;
+
+        log::info!("Secure read-only /sys filesystem bind-mounted from host");
         Ok(())
     }
 
