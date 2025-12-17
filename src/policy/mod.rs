@@ -84,6 +84,9 @@ pub struct CapabilityPolicy {
     /// List of capabilities to explicitly add (e.g., "CAP_NET_RAW").
     #[serde(default)]
     pub add: Vec<String>,
+    /// List of capabilities to drop when default_drop is false.
+    #[serde(default)]
+    pub drop: Vec<String>,
 }
 
 /// Defines network access rules.

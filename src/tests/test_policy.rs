@@ -122,6 +122,7 @@ fn create_test_policy_with_paths(
         capabilities: CapabilityPolicy {
             default_drop: true,
             add: vec![],
+            drop: vec![],
         },
         network: NetworkPolicy {
             isolated: true,
@@ -349,6 +350,7 @@ fn create_test_policy_with_resources(
         capabilities: CapabilityPolicy {
             default_drop: true,
             add: vec![],
+            drop: vec![],
         },
         network: NetworkPolicy {
             isolated: true,
@@ -479,6 +481,7 @@ fn create_test_policy_with_ports(outgoing: Vec<&str>, incoming: Vec<&str>) -> Po
         capabilities: CapabilityPolicy {
             default_drop: true,
             add: vec![],
+            drop: vec![],
         },
         network: NetworkPolicy {
             isolated: false,
@@ -577,6 +580,7 @@ fn test_empty_syscall_list_with_default_deny_rejected() {
         capabilities: CapabilityPolicy {
             default_drop: true,
             add: vec![],
+            drop: vec![],
         },
         network: NetworkPolicy {
             isolated: true,
@@ -629,6 +633,7 @@ fn test_empty_syscall_list_with_default_allow_accepted() {
         capabilities: CapabilityPolicy {
             default_drop: true,
             add: vec![],
+            drop: vec![],
         },
         network: NetworkPolicy {
             isolated: true,

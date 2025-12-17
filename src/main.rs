@@ -49,26 +49,74 @@ fn main() {
         Commands::Profile { command } => match command {
             ProfileCommands::Create { name } => {
                 println!("Creating profile: {}", name);
+
+                // Check if profile already exists
                 let policy_path = format!("./policies/{}.yaml", name);
                 let policy_path_buf = std::path::PathBuf::from(&policy_path);
-                match policy::parser::load_policy_from_file(&policy_path_buf) {
-                    Ok(policy) => {
-                        println!("Successfully loaded policy for {}: {:?}", name, policy);
-                        match policy.compile() {
-                            Ok(compiled_policy) => {
-                                println!(
-                                    "Successfully compiled policy for {}: {:?}",
-                                    name, compiled_policy
-                                );
-                                // TODO: Implement actual profile creation logic (e.g., save compiled policy)
+
+                if policy_path_buf.exists() {
+                    eprintln!(
+                        "Error: Profile '{}' already exists at {}",
+                        name, policy_path
+                    );
+                    return;
+                }
+
+                // Create a default policy template
+                let default_policy = format!(
+                    "name: {}\"
+syscalls:\
+  default_deny: false\n  allow: []\n  deny: []\nresources:\
+  cpu_shares: 0.5\n  memory_limit_bytes: \"1G\"\n  pids_limit: 100\n  block_io_limit: \"100MBps\"\n  session_timeout_seconds: 60\ncapabilities:\
+  default_drop: true\n  add: []\nnetwork:\
+  isolated: false\n  allow_outgoing: []\n  allow_incoming: []\nfilesystem:\
+  immutable_paths:\
+    - host_path: \"/usr/bin\"\n      sandbox_path: \"/usr/bin\"\n    - host_path: \"/lib\"\n      sandbox_path: \"/lib\"\n    - host_path: \"/lib64\"\n      sandbox_path: \"/lib64\"\n  scratch_paths:\
+    - \"/tmp\"\n  output_paths: []\n  working_dir: \"/tmp\"\naudit:\
+  enabled: false\n  log_path: \"/var/log/purple/{}.log\"\n  detail_level: []\n",
+                    name, name
+                );
+
+                // Create policies directory if it doesn't exist
+                if let Some(parent) = policy_path_buf.parent()
+                    && let Err(e) = std::fs::create_dir_all(parent)
+                {
+                    eprintln!("Error creating policies directory: {}", e);
+                    return;
+                }
+
+                // Write the default policy file
+                match std::fs::write(&policy_path_buf, default_policy) {
+                    Ok(_) => {
+                        println!(
+                            "✓ Successfully created profile '{}' at {}",
+                            name, policy_path
+                        );
+
+                        // Try to validate the created policy
+                        match policy::parser::load_policy_from_file(&policy_path_buf) {
+                            Ok(policy) => {
+                                println!("✓ Policy syntax is valid");
+                                match policy.compile() {
+                                    Ok(_) => {
+                                        println!("✓ Policy compilation successful");
+                                    }
+                                    Err(e) => {
+                                        println!("⚠️  Policy compilation warning: {}", e);
+                                        println!(
+                                            "   The profile was created but may need adjustments."
+                                        );
+                                    }
+                                }
                             }
                             Err(e) => {
-                                eprintln!("Error compiling policy for {}: {}", name, e);
+                                println!("⚠️  Policy validation warning: {}", e);
+                                println!("   The profile was created but has syntax errors.");
                             }
                         }
                     }
                     Err(e) => {
-                        eprintln!("Error loading policy for {}: {}", name, e);
+                        eprintln!("Error writing profile file: {}", e);
                     }
                 }
             }
@@ -193,6 +241,7 @@ fn main() {
                         println!("\nCapability Policy:");
                         println!("  Default drop: {}", policy.capabilities.default_drop);
                         println!("  Added capabilities: {}", policy.capabilities.add.len());
+                        println!("  Dropped capabilities: {}", policy.capabilities.drop.len());
 
                         println!("\nNetwork Policy:");
                         println!("  Isolated: {}", policy.network.isolated);
