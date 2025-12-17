@@ -278,11 +278,23 @@ pub struct CompiledResourcePolicy {
     pub session_timeout_seconds: Option<u64>,
 }
 
+impl CompiledResourcePolicy {
+    /// Checks if any resource limits are specified in the policy.
+    pub fn has_resource_limits(&self) -> bool {
+        self.cpu_shares.is_some()
+            || self.memory_limit_bytes.is_some()
+            || self.pids_limit.is_some()
+            || self.block_io_limit_bytes_per_sec.is_some()
+            || self.session_timeout_seconds.is_some()
+    }
+}
+
 /// Compiled capability rules.
 #[derive(Debug, Clone)]
 pub struct CompiledCapabilityPolicy {
     pub default_drop: bool,
     pub added_capabilities: HashSet<String>, // Linux capability names (e.g., "CAP_NET_RAW")
+    pub dropped_capabilities: HashSet<String>, // Capabilities to drop when default_drop=false
 }
 
 /// Compiled network rules.
@@ -573,6 +585,7 @@ impl Policy {
         let compiled_capabilities = CompiledCapabilityPolicy {
             default_drop: self.capabilities.default_drop,
             added_capabilities: self.capabilities.add.iter().cloned().collect(),
+            dropped_capabilities: self.capabilities.drop.iter().cloned().collect(),
         };
 
         // --- Network Compilation with Strict Validation ---
