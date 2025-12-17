@@ -32,7 +32,8 @@ fn test_policy_compilation() {
     assert_eq!(compiled_policy.syscalls.default_deny, false);
     assert!(!compiled_policy.syscalls.allowed_syscall_numbers.is_empty());
     assert_eq!(compiled_policy.capabilities.default_drop, true);
-    assert!(!compiled_policy.capabilities.added_capabilities.is_empty());
+    // Note: ai-dev-safe policy has add: [] (no added capabilities), which is valid
+    assert!(compiled_policy.capabilities.added_capabilities.is_empty());
 }
 
 #[test]

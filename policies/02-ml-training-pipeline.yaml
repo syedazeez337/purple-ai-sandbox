@@ -1,0 +1,109 @@
+# Policy 2: ML Training Pipeline
+# Use Case: Deep learning model training, PyTorch/TensorFlow workloads
+# Security Level: Medium - high resources but restricted dangerous syscalls
+#
+# Best Practices Applied:
+# - Uses default_deny: false with explicit deny list (more portable)
+# - Output paths use /tmp/purple/ (works without special permissions)
+# - Working directory is /tmp (always exists in sandbox)
+# - Optional paths (cuda, conda) documented but not required
+
+name: "ml-training-pipeline"
+description: "Sandbox for machine learning training pipelines. Allows high CPU/memory usage with restricted system access."
+
+filesystem:
+  immutable_paths:
+    # Core system libraries (read-only)
+    - host_path: "/usr"
+      sandbox_path: "/usr"
+    - host_path: "/lib"
+      sandbox_path: "/lib"
+    - host_path: "/lib64"
+      sandbox_path: "/lib64"
+    - host_path: "/bin"
+      sandbox_path: "/bin"
+    # Note: Add these if CUDA/Conda are installed:
+    # - host_path: "/opt/cuda"
+    #   sandbox_path: "/opt/cuda"
+    # - host_path: "/opt/conda"
+    #   sandbox_path: "/opt/conda"
+  scratch_paths:
+    - "/tmp"
+    - "/var/tmp"
+  output_paths:
+    # Use /tmp/purple/ for cross-platform compatibility
+    - host_path: "/tmp/purple/output/ml-training"
+      sandbox_path: "/output"
+    - host_path: "/tmp/purple/models"
+      sandbox_path: "/models"
+    - host_path: "/tmp/purple/checkpoints"
+      sandbox_path: "/checkpoints"
+  working_dir: "/tmp"
+
+syscalls:
+  # Best Practice: Use default_deny: false with comprehensive deny list
+  default_deny: false
+  allow: []
+  deny:
+    # Kernel/system modification - CRITICAL
+    - "mount"
+    - "umount2"
+    - "reboot"
+    - "kexec_load"
+    - "kexec_file_load"
+    - "init_module"
+    - "finit_module"
+    - "delete_module"
+    - "swapon"
+    - "swapoff"
+    - "sethostname"
+    - "setdomainname"
+    - "pivot_root"
+    - "chroot"
+    # Process debugging/tracing - HIGH
+    - "ptrace"
+    - "process_vm_readv"
+    - "process_vm_writev"
+    # Privilege escalation - CRITICAL
+    - "setuid"
+    - "setgid"
+    - "setreuid"
+    - "setregid"
+    - "setresuid"
+    - "setresgid"
+    - "capset"
+    # Security bypass - CRITICAL
+    - "personality"
+    - "seccomp"
+    - "bpf"
+    - "perf_event_open"
+    - "userfaultfd"
+    # io_uring - HIGH
+    - "io_uring_setup"
+    - "io_uring_enter"
+    - "io_uring_register"
+
+resources:
+  # High resources for ML workloads
+  cpu_shares: 0.9
+  memory_limit_bytes: "32G"
+  pids_limit: 500
+  block_io_limit: "500MBps"
+  session_timeout_seconds: 86400  # 24 hours for long training
+
+capabilities:
+  default_drop: true
+  add: []  # Note: CAP_SYS_NICE requires privileged setup; omitted for compatibility
+
+network:
+  isolated: false
+  allow_outgoing:
+    - "443"  # HTTPS for downloading models/datasets
+    - "80"   # HTTP fallback
+  allow_incoming: []
+
+audit:
+  enabled: true
+  log_path: "/var/log/purple/ml-training.log"
+  detail_level:
+    - "resource"

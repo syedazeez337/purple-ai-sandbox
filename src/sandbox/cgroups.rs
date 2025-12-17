@@ -54,10 +54,19 @@ impl CgroupManager {
         // Apply CPU limits
         if let Some(cpu_shares) = policy.cpu_shares {
             log::info!("Setting CPU shares to {}", cpu_shares);
-            // Convert shares to appropriate value (cgroup2 uses different scale)
-            let cpu_shares_value = (cpu_shares * 1024.0) as u64;
-            let cpu_shares_path = self.cgroup_path.join("cpu.max");
-            fs::write(cpu_shares_path, format!("{}", cpu_shares_value))?;
+            // cgroup2 cpu.max format: "$MAX $PERIOD" where MAX is quota in microseconds
+            // and PERIOD is the period (typically 100000 = 100ms)
+            // For example, 0.5 shares = 50% CPU = "50000 100000"
+            let period: u64 = 100000; // 100ms period
+            let quota = (cpu_shares * period as f64) as u64;
+            let cpu_max_path = self.cgroup_path.join("cpu.max");
+            fs::write(&cpu_max_path, format!("{} {}", quota, period))?;
+            log::info!(
+                "CPU limit set: {} us / {} us period ({}%)",
+                quota,
+                period,
+                (cpu_shares * 100.0) as u32
+            );
         } else {
             log::info!("No CPU shares limit specified");
         }
@@ -106,6 +115,29 @@ impl CgroupManager {
         }
 
         log::info!("Cgroups configured using cgroupfs");
+        Ok(())
+    }
+
+    /// Adds a process to this cgroup
+    pub fn add_pid(&self, pid: u64) -> Result<()> {
+        use std::fs;
+
+        let cgroup_procs_path = self.cgroup_path.join("cgroup.procs");
+
+        log::info!(
+            "Adding PID {} to cgroup at {}",
+            pid,
+            cgroup_procs_path.display()
+        );
+
+        fs::write(&cgroup_procs_path, format!("{}", pid)).map_err(|e| {
+            crate::error::PurpleError::ResourceError(format!(
+                "Failed to add PID {} to cgroup: {}",
+                pid, e
+            ))
+        })?;
+
+        log::info!("✓ PID {} added to cgroup successfully", pid);
         Ok(())
     }
 

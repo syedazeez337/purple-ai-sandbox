@@ -28,8 +28,26 @@ const FORBIDDEN_HOST_PREFIXES: &[&str] = &[
 
 /// Validates a path for security issues
 /// Returns Ok(normalized_path) or Err(description of security issue)
+///
+/// For host paths: relative paths are resolved against the current working directory.
+/// This allows policies to use convenient relative paths like "./output" while
+/// maintaining security by validating the resolved absolute path.
 fn validate_path(path: &Path, path_type: &str, is_host_path: bool) -> Result<PathBuf, String> {
-    let path_str = path.to_string_lossy();
+    // Resolve relative paths to absolute for host paths
+    let resolved_path = if is_host_path && !path.is_absolute() {
+        // Get current working directory and resolve the relative path
+        let cwd = std::env::current_dir().map_err(|e| {
+            format!(
+                "Cannot resolve relative path in {}: failed to get current directory: {}",
+                path_type, e
+            )
+        })?;
+        cwd.join(path)
+    } else {
+        path.to_path_buf()
+    };
+
+    let path_str = resolved_path.to_string_lossy();
 
     // Check for path traversal sequences
     if path_str.contains("..") {
@@ -39,8 +57,8 @@ fn validate_path(path: &Path, path_type: &str, is_host_path: bool) -> Result<Pat
         ));
     }
 
-    // Check for relative paths (all paths must be absolute)
-    if !path.is_absolute() {
+    // Check for relative paths (sandbox paths must still be absolute)
+    if !resolved_path.is_absolute() {
         return Err(format!(
             "Relative path detected in {}: '{}'. All paths must be absolute.",
             path_type, path_str
@@ -57,6 +75,9 @@ fn validate_path(path: &Path, path_type: &str, is_host_path: bool) -> Result<Pat
 
     // Additional checks for host paths (paths on the actual system)
     if is_host_path {
+        // Get current working directory for relative path allowance check
+        let cwd = std::env::current_dir().ok();
+
         // Check against forbidden paths
         for forbidden in FORBIDDEN_HOST_PATHS {
             if path_str == *forbidden || path_str.starts_with(&format!("{}/", forbidden)) {
@@ -68,12 +89,21 @@ fn validate_path(path: &Path, path_type: &str, is_host_path: bool) -> Result<Pat
         }
 
         // Check against forbidden prefixes
+        // Exception: allow paths under the current working directory (for relative paths)
         for prefix in FORBIDDEN_HOST_PREFIXES {
             if path_str.starts_with(prefix) {
-                return Err(format!(
-                    "Forbidden path prefix in {}: '{}'. Paths starting with '{}' are not allowed.",
-                    path_type, path_str, prefix
-                ));
+                // Allow if the path is under the current working directory
+                let is_under_cwd = cwd
+                    .as_ref()
+                    .is_some_and(|cwd_path| resolved_path.starts_with(cwd_path));
+
+                if !is_under_cwd {
+                    return Err(format!(
+                        "Forbidden path prefix in {}: '{}'. Paths starting with '{}' are not allowed \
+                         (unless they are under the current working directory).",
+                        path_type, path_str, prefix
+                    ));
+                }
             }
         }
     }
@@ -81,7 +111,7 @@ fn validate_path(path: &Path, path_type: &str, is_host_path: bool) -> Result<Pat
     // Normalize the path (remove redundant separators, resolve . components)
     // Note: We can't use canonicalize() here as the path might not exist yet
     let mut normalized = PathBuf::new();
-    for component in path.components() {
+    for component in resolved_path.components() {
         use std::path::Component;
         match component {
             Component::RootDir => normalized.push("/"),
@@ -280,12 +310,12 @@ pub struct CompiledResourcePolicy {
 
 impl CompiledResourcePolicy {
     /// Checks if any resource limits are specified in the policy.
+    /// Note: session_timeout_seconds doesn't require cgroups, so it's excluded.
     pub fn has_resource_limits(&self) -> bool {
         self.cpu_shares.is_some()
             || self.memory_limit_bytes.is_some()
             || self.pids_limit.is_some()
             || self.block_io_limit_bytes_per_sec.is_some()
-            || self.session_timeout_seconds.is_some()
     }
 }
 
@@ -367,175 +397,22 @@ impl Policy {
         };
 
         // --- Syscall Compilation ---
-        // TODO: Map string syscall names to actual Linux syscall numbers
-        // This is a placeholder and needs a robust mapping.
         let mut allowed_syscall_numbers = BTreeSet::new();
         for sname in &self.syscalls.allow {
-            // For now, just a dummy mapping or direct number if policy specifies it
-            // In a real system, this would use a `syscall_names_to_numbers` map
-            match sname.as_str() {
-                "read" => {
-                    allowed_syscall_numbers.insert(0);
-                } // __NR_read
-                "write" => {
-                    allowed_syscall_numbers.insert(1);
-                } // __NR_write
-                "openat" => {
-                    allowed_syscall_numbers.insert(257);
-                } // __NR_openat
-                "close" => {
-                    allowed_syscall_numbers.insert(3);
-                } // __NR_close
-                "fstat" => {
-                    allowed_syscall_numbers.insert(5);
-                } // __NR_fstat
-                "newfstatat" => {
-                    allowed_syscall_numbers.insert(262);
-                } // __NR_newfstatat
-                "mmap" => {
-                    allowed_syscall_numbers.insert(9);
-                } // __NR_mmap
-                "mprotect" => {
-                    allowed_syscall_numbers.insert(10);
-                } // __NR_mprotect
-                "munmap" => {
-                    allowed_syscall_numbers.insert(11);
-                } // __NR_munmap
-                "brk" => {
-                    allowed_syscall_numbers.insert(12);
-                } // __NR_brk
-                "access" => {
-                    allowed_syscall_numbers.insert(21);
-                } // __NR_access
-                "execve" => {
-                    allowed_syscall_numbers.insert(59);
-                } // __NR_execve
-                "arch_prctl" => {
-                    allowed_syscall_numbers.insert(158);
-                } // __NR_arch_prctl
-                "set_tid_address" => {
-                    allowed_syscall_numbers.insert(178);
-                } // __NR_set_tid_address
-                "set_robust_list" => {
-                    allowed_syscall_numbers.insert(179);
-                } // __NR_set_robust_list
-                "rseq" => {
-                    allowed_syscall_numbers.insert(293);
-                } // __NR_rseq
-                "prlimit64" => {
-                    allowed_syscall_numbers.insert(261);
-                } // __NR_prlimit64
-                "getrandom" => {
-                    allowed_syscall_numbers.insert(318);
-                } // __NR_getrandom
-                "exit_group" => {
-                    allowed_syscall_numbers.insert(231);
-                } // __NR_exit_group
-                "clone3" => {
-                    allowed_syscall_numbers.insert(435);
-                } // __NR_clone3
-
-                // Added for basic shell utilities (echo, ls, cat, etc.)
-                "ioctl" => {
-                    allowed_syscall_numbers.insert(16);
-                }
-                "pread64" => {
-                    allowed_syscall_numbers.insert(17);
-                }
-                "writev" => {
-                    allowed_syscall_numbers.insert(20);
-                }
-                "lseek" => {
-                    allowed_syscall_numbers.insert(8);
-                }
-                // "mprotect" already handled above (10)
-                "rt_sigaction" => {
-                    allowed_syscall_numbers.insert(13);
-                }
-                "rt_sigprocmask" => {
-                    allowed_syscall_numbers.insert(14);
-                }
-                "rt_sigreturn" => {
-                    allowed_syscall_numbers.insert(15);
-                }
-                "pipe" => {
-                    allowed_syscall_numbers.insert(22);
-                }
-                "fcntl" => {
-                    allowed_syscall_numbers.insert(72);
-                }
-                "getcwd" => {
-                    allowed_syscall_numbers.insert(79);
-                }
-                "mkdir" => {
-                    allowed_syscall_numbers.insert(83);
-                }
-                "rmdir" => {
-                    allowed_syscall_numbers.insert(84);
-                }
-                "unlink" => {
-                    allowed_syscall_numbers.insert(87);
-                }
-                "getuid" => {
-                    allowed_syscall_numbers.insert(102);
-                }
-                "getgid" => {
-                    allowed_syscall_numbers.insert(104);
-                }
-                "geteuid" => {
-                    allowed_syscall_numbers.insert(107);
-                }
-                "getegid" => {
-                    allowed_syscall_numbers.insert(108);
-                }
-                "capget" => {
-                    allowed_syscall_numbers.insert(125);
-                }
-                "capset" => {
-                    allowed_syscall_numbers.insert(126);
-                }
-                "prctl" => {
-                    allowed_syscall_numbers.insert(157);
-                }
-                "stat" => {
-                    allowed_syscall_numbers.insert(4);
-                }
-                "lstat" => {
-                    allowed_syscall_numbers.insert(6);
-                }
-                "poll" => {
-                    allowed_syscall_numbers.insert(7);
-                }
-
-                _ => return Err(format!("Unknown syscall: {}", sname)),
+            if let Some(num) = crate::sandbox::seccomp::get_syscall_number(sname) {
+                allowed_syscall_numbers.insert(num);
+            } else {
+                return Err(format!("Unknown syscall: {}", sname));
             }
         }
-        // Deny overrides allow - not strictly necessary with default_deny=true,
-        // but good for explicit overriding.
+        // Deny overrides allow - removes syscalls from allowed list.
+        // This is useful for explicitly blocking dangerous syscalls even if
+        // they were included in the allow list, or for documentation purposes.
         for sname in &self.syscalls.deny {
-            match sname.as_str() {
-                "mount" => {
-                    allowed_syscall_numbers.remove(&165);
-                }
-                "unmount" => {
-                    allowed_syscall_numbers.remove(&166);
-                }
-                "reboot" => {
-                    allowed_syscall_numbers.remove(&169);
-                }
-                "kexec_load" => {
-                    allowed_syscall_numbers.remove(&283);
-                }
-                "bpf" => {
-                    allowed_syscall_numbers.remove(&321);
-                }
-                "unlinkat" => {
-                    allowed_syscall_numbers.remove(&263);
-                }
-                "renameat2" => {
-                    allowed_syscall_numbers.remove(&316);
-                }
-                _ => return Err(format!("Unknown syscall to deny: {}", sname)),
+            if let Some(num) = crate::sandbox::seccomp::get_syscall_number(sname) {
+                allowed_syscall_numbers.remove(&num);
+            } else {
+                return Err(format!("Unknown syscall to deny: {}", sname));
             }
         }
 
