@@ -84,29 +84,32 @@
 <a href=#84 id=84 data-nosnippet>84</a>    <span class="doccomment">/// List of capabilities to explicitly add (e.g., "CAP_NET_RAW").
 <a href=#85 id=85 data-nosnippet>85</a>    </span><span class="attr">#[serde(default)]
 <a href=#86 id=86 data-nosnippet>86</a>    </span><span class="kw">pub </span>add: Vec&lt;String&gt;,
-<a href=#87 id=87 data-nosnippet>87</a>}
-<a href=#88 id=88 data-nosnippet>88</a>
-<a href=#89 id=89 data-nosnippet>89</a><span class="doccomment">/// Defines network access rules.
-<a href=#90 id=90 data-nosnippet>90</a></span><span class="attr">#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-<a href=#91 id=91 data-nosnippet>91</a></span><span class="kw">pub struct </span>NetworkPolicy {
-<a href=#92 id=92 data-nosnippet>92</a>    <span class="doccomment">/// If true, the sandbox will have no network access (e.g., isolated network namespace).
-<a href=#93 id=93 data-nosnippet>93</a>    </span><span class="kw">pub </span>isolated: bool,
-<a href=#94 id=94 data-nosnippet>94</a>    <span class="doccomment">/// Allowed outgoing connections (e.g., "8.8.8.8:53").
-<a href=#95 id=95 data-nosnippet>95</a>    </span><span class="attr">#[serde(default)]
-<a href=#96 id=96 data-nosnippet>96</a>    </span><span class="kw">pub </span>allow_outgoing: Vec&lt;String&gt;,
-<a href=#97 id=97 data-nosnippet>97</a>    <span class="doccomment">/// Allowed incoming connections.
+<a href=#87 id=87 data-nosnippet>87</a>    <span class="doccomment">/// List of capabilities to drop when default_drop is false.
+<a href=#88 id=88 data-nosnippet>88</a>    </span><span class="attr">#[serde(default)]
+<a href=#89 id=89 data-nosnippet>89</a>    </span><span class="kw">pub </span>drop: Vec&lt;String&gt;,
+<a href=#90 id=90 data-nosnippet>90</a>}
+<a href=#91 id=91 data-nosnippet>91</a>
+<a href=#92 id=92 data-nosnippet>92</a><span class="doccomment">/// Defines network access rules.
+<a href=#93 id=93 data-nosnippet>93</a></span><span class="attr">#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+<a href=#94 id=94 data-nosnippet>94</a></span><span class="kw">pub struct </span>NetworkPolicy {
+<a href=#95 id=95 data-nosnippet>95</a>    <span class="doccomment">/// If true, the sandbox will have no network access (e.g., isolated network namespace).
+<a href=#96 id=96 data-nosnippet>96</a>    </span><span class="kw">pub </span>isolated: bool,
+<a href=#97 id=97 data-nosnippet>97</a>    <span class="doccomment">/// Allowed outgoing connections (e.g., "8.8.8.8:53").
 <a href=#98 id=98 data-nosnippet>98</a>    </span><span class="attr">#[serde(default)]
-<a href=#99 id=99 data-nosnippet>99</a>    </span><span class="kw">pub </span>allow_incoming: Vec&lt;String&gt;,
-<a href=#100 id=100 data-nosnippet>100</a>}
-<a href=#101 id=101 data-nosnippet>101</a>
-<a href=#102 id=102 data-nosnippet>102</a><span class="doccomment">/// Defines audit logging settings.
-<a href=#103 id=103 data-nosnippet>103</a></span><span class="attr">#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-<a href=#104 id=104 data-nosnippet>104</a></span><span class="kw">pub struct </span>AuditPolicy {
-<a href=#105 id=105 data-nosnippet>105</a>    <span class="doccomment">/// If true, generate detailed JSON audit logs.
-<a href=#106 id=106 data-nosnippet>106</a>    </span><span class="kw">pub </span>enabled: bool,
-<a href=#107 id=107 data-nosnippet>107</a>    <span class="doccomment">/// Path to store audit logs within the host.
-<a href=#108 id=108 data-nosnippet>108</a>    </span><span class="kw">pub </span>log_path: PathBuf,
-<a href=#109 id=109 data-nosnippet>109</a>    <span class="doccomment">/// Level of detail for logs (e.g., "syscall", "filesystem", "resource").
-<a href=#110 id=110 data-nosnippet>110</a>    </span><span class="attr">#[serde(default)]
-<a href=#111 id=111 data-nosnippet>111</a>    </span><span class="kw">pub </span>detail_level: Vec&lt;String&gt;,
-<a href=#112 id=112 data-nosnippet>112</a>}</code></pre></div></section></main></body></html>
+<a href=#99 id=99 data-nosnippet>99</a>    </span><span class="kw">pub </span>allow_outgoing: Vec&lt;String&gt;,
+<a href=#100 id=100 data-nosnippet>100</a>    <span class="doccomment">/// Allowed incoming connections.
+<a href=#101 id=101 data-nosnippet>101</a>    </span><span class="attr">#[serde(default)]
+<a href=#102 id=102 data-nosnippet>102</a>    </span><span class="kw">pub </span>allow_incoming: Vec&lt;String&gt;,
+<a href=#103 id=103 data-nosnippet>103</a>}
+<a href=#104 id=104 data-nosnippet>104</a>
+<a href=#105 id=105 data-nosnippet>105</a><span class="doccomment">/// Defines audit logging settings.
+<a href=#106 id=106 data-nosnippet>106</a></span><span class="attr">#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+<a href=#107 id=107 data-nosnippet>107</a></span><span class="kw">pub struct </span>AuditPolicy {
+<a href=#108 id=108 data-nosnippet>108</a>    <span class="doccomment">/// If true, generate detailed JSON audit logs.
+<a href=#109 id=109 data-nosnippet>109</a>    </span><span class="kw">pub </span>enabled: bool,
+<a href=#110 id=110 data-nosnippet>110</a>    <span class="doccomment">/// Path to store audit logs within the host.
+<a href=#111 id=111 data-nosnippet>111</a>    </span><span class="kw">pub </span>log_path: PathBuf,
+<a href=#112 id=112 data-nosnippet>112</a>    <span class="doccomment">/// Level of detail for logs (e.g., "syscall", "filesystem", "resource").
+<a href=#113 id=113 data-nosnippet>113</a>    </span><span class="attr">#[serde(default)]
+<a href=#114 id=114 data-nosnippet>114</a>    </span><span class="kw">pub </span>detail_level: Vec&lt;String&gt;,
+<a href=#115 id=115 data-nosnippet>115</a>}</code></pre></div></section></main></body></html>

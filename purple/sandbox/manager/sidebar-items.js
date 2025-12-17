@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["SandboxStatus"],"struct":["ResourceAllocation","ResourcePool","ResourcePoolStatus","ResourceUsage","SandboxInstance","SandboxManager"]};
