@@ -12,8 +12,7 @@ pub mod budget;
 pub mod cost;
 
 pub use api_monitor::LLMAPIMonitor;
-pub use budget::{Budget, BudgetEnforcer, BudgetExceeded};
-pub use cost::{CostCalculator, ModelPricing};
+pub use budget::{Budget, BudgetEnforcer};
 
 /// AI-specific policies from YAML
 #[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]

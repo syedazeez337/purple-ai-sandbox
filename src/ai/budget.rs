@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // purple/src/ai/budget.rs
 //! Token budget tracking and enforcement
 

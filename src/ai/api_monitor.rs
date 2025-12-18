@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // purple/src/ai/api_monitor.rs
 //! Monitor and parse LLM API calls
 

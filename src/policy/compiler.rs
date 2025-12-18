@@ -279,6 +279,8 @@ pub struct CompiledPolicy {
     pub capabilities: CompiledCapabilityPolicy,
     pub network: CompiledNetworkPolicy,
     pub audit: CompiledAuditPolicy,
+    /// AI-specific policies for LLM monitoring and budgeting
+    pub ai_policy: Option<crate::ai::AIPolicies>,
 }
 
 /// Compiled filesystem rules.
@@ -493,6 +495,9 @@ impl Policy {
             detail_level: self.audit.detail_level.iter().cloned().collect(),
         };
 
+        // --- AI Policy Compilation ---
+        let compiled_ai_policy = self.ai_policy.clone();
+
         Ok(CompiledPolicy {
             name: self.name.clone(),
             filesystem: compiled_filesystem,
@@ -501,6 +506,7 @@ impl Policy {
             capabilities: compiled_capabilities,
             network: compiled_network,
             audit: compiled_audit,
+            ai_policy: compiled_ai_policy,
         })
     }
 }

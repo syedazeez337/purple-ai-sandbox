@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // purple/src/ai/cost.rs
 //! LLM API cost calculation based on token usage
 

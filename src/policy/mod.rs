@@ -17,6 +17,9 @@ pub struct Policy {
     pub capabilities: CapabilityPolicy,
     pub network: NetworkPolicy,
     pub audit: AuditPolicy,
+    /// AI-specific policies (optional)
+    #[serde(default)]
+    pub ai_policy: Option<crate::ai::AIPolicies>,
 }
 
 /// Defines filesystem access rules.
