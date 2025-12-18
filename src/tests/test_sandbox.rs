@@ -15,6 +15,7 @@ use std::path::PathBuf;
 /// Creates a minimal test policy for sandbox testing
 fn create_test_policy(name: &str) -> CompiledPolicy {
     CompiledPolicy {
+        ai_policy: None,
         name: name.to_string(),
         filesystem: CompiledFilesystemPolicy {
             immutable_mounts: vec![

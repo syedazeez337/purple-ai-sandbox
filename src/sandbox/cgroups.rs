@@ -31,6 +31,67 @@ impl CgroupManager {
         log::info!("Cgroup name: {}", self.cgroup_name);
         log::info!("Cgroup path: {}", self.cgroup_path.display());
 
+        // Ensure parent cgroup directory exists and has controllers enabled
+        let parent_cgroup_path = PathBuf::from("/sys/fs/cgroup/purple");
+        if !parent_cgroup_path.exists() {
+            if let Err(e) = fs::create_dir_all(&parent_cgroup_path) {
+                return Err(crate::error::PurpleError::ResourceError(format!(
+                    "Failed to create parent cgroup directory: {}",
+                    e
+                )));
+            }
+            log::info!(
+                "Created parent cgroup directory: {}",
+                parent_cgroup_path.display()
+            );
+        }
+
+        // Enable controllers in parent cgroup's subtree_control
+        // This is required for child cgroups to have controller files (cpu.max, memory.max, etc.)
+        let subtree_control_path = parent_cgroup_path.join("cgroup.subtree_control");
+        if subtree_control_path.exists() {
+            // Read current controllers
+            let current_controllers = fs::read_to_string(&subtree_control_path).unwrap_or_default();
+            let needs_cpu = !current_controllers.contains("cpu");
+            let needs_memory = !current_controllers.contains("memory");
+            let needs_pids = !current_controllers.contains("pids");
+            let needs_io = !current_controllers.contains("io");
+
+            if needs_cpu || needs_memory || needs_pids || needs_io {
+                log::info!("Enabling cgroup controllers in parent subtree_control...");
+
+                // Build list of controllers to enable
+                let mut controllers_to_enable = Vec::new();
+                if needs_cpu {
+                    controllers_to_enable.push("+cpu");
+                }
+                if needs_memory {
+                    controllers_to_enable.push("+memory");
+                }
+                if needs_pids {
+                    controllers_to_enable.push("+pids");
+                }
+                if needs_io {
+                    controllers_to_enable.push("+io");
+                }
+
+                // Enable each controller individually (some systems require this)
+                for controller in &controllers_to_enable {
+                    if let Err(e) = fs::write(&subtree_control_path, controller) {
+                        log::warn!(
+                            "Failed to enable controller {} in subtree_control: {}",
+                            controller,
+                            e
+                        );
+                    } else {
+                        log::info!("Enabled controller {} in parent cgroup", controller);
+                    }
+                }
+            } else {
+                log::info!("All required cgroup controllers already enabled");
+            }
+        }
+
         // Create the cgroup directory
         if let Err(e) = fs::create_dir_all(&self.cgroup_path) {
             if e.kind() == std::io::ErrorKind::PermissionDenied

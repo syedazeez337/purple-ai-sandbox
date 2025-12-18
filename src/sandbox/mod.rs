@@ -1,5 +1,6 @@
 // purple/src/sandbox/mod.rs
 
+use crate::ai::{BudgetEnforcer, LLMAPIMonitor};
 use crate::error::{PurpleError, Result};
 use crate::policy::compiler::CompiledPolicy;
 use nix::mount::{MsFlags, mount};
@@ -86,6 +87,11 @@ pub struct Sandbox {
     policy: CompiledPolicy,
     agent_command: Vec<String>,
     sandbox_id: String,
+    /// AI API monitor for tracking LLM calls
+    #[allow(dead_code)]
+    api_monitor: LLMAPIMonitor,
+    /// Budget enforcer for cost/token limits
+    budget_enforcer: Option<BudgetEnforcer>,
 }
 
 impl Sandbox {
@@ -93,10 +99,33 @@ impl Sandbox {
     pub fn new(policy: CompiledPolicy, agent_command: Vec<String>) -> Self {
         // Generate sandbox ID upfront so parent and child can both reference the same cgroup
         let sandbox_id = cgroups::generate_sandbox_id();
+
+        // Initialize AI components
+        let api_monitor = LLMAPIMonitor::new();
+
+        // Initialize budget enforcer if policy has AI budget limits
+        let budget_enforcer = if let Some(ai_policy) = &policy.ai_policy {
+            if let Some(budget_config) = &ai_policy.budget {
+                let budget = crate::ai::Budget::new(
+                    budget_config.max_tokens,
+                    budget_config.max_cost.clone(),
+                )
+                .ok();
+
+                budget.map(BudgetEnforcer::new)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         Sandbox {
             policy,
             agent_command,
             sandbox_id,
+            api_monitor,
+            budget_enforcer,
         }
     }
 
@@ -1909,6 +1938,19 @@ impl Sandbox {
                 "disabled"
             }
         );
+
+        // Budget enforcement summary
+        if let Some(ref budget_enforcer) = self.budget_enforcer {
+            let usage = budget_enforcer.get_usage();
+            log::info!("  - Budget enforcement: enabled");
+            log::info!("  - Tokens used: {}", usage.tokens_used);
+            log::info!(
+                "  - Cost incurred: {}",
+                crate::ai::cost::CostCalculator::format_cost(usage.cost_cents)
+            );
+        } else {
+            log::info!("  - Budget enforcement: disabled");
+        }
 
         Ok(())
     }

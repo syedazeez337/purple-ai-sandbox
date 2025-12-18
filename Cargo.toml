@@ -7,7 +7,7 @@ description = "Secure, isolated execution environment for AI agents with compreh
 homepage = "https://github.com/your-org/purple"
 repository = "https://github.com/your-org/purple"
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 keywords = ["sandbox", "security", "ai", "isolation", "container"]
 categories = ["security", "virtualization", "os"]
 
@@ -19,12 +19,25 @@ nix = { version = "0.30.1", features = ["sched", "user", "mount", "fs"] }
 ctrlc = { version = "3.4.4", features = ["termination"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_yaml = "0.9.34"
+serde_json = "1.0"
+once_cell = "1.19"
 uuid = { version = "1.0", features = ["v4"] }
 libseccomp = "0.2.0"
 cgroups-rs = "0.3.0"
 caps = "0.5"
 libc = "0.2"
 
+# Industry-standard HTTP proxy dependencies
+hyper = { version = "1.4.0", features = ["full"] }
+tokio = { version = "1.38.0", features = ["full"] }
+tower = { version = "0.4.13", features = ["util", "timeout", "limit"] }
+tower-http = { version = "0.5.2", features = ["trace", "cors", "add-extension"] }
+http = "1.1.0"
+http-body-util = "0.1.2"
+hyper-util = { version = "0.1.3", features = ["tokio"] }
+regex = "1.10.5"
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
 [dev-dependencies]
 tempfile = "3.10.0"
@@ -36,7 +49,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 [package.metadata.release]
 pre-release-replacements = [
     {file="CHANGELOG.md", search="Unreleased", replace="{{version}}", exactly=1},
-    {file="CHANGELOG.md", search="\\d{4}-\\d{2}-\\d{2}", replace="{{date}}", exactly=1},
+    {file="CHANGELOG.md", search="\\d{4}\\-\\d{2}\\-\\d{2}", replace="{{date}}", exactly=1},
     {file="Cargo.toml", search="version = \"0.1.0\"", replace="version = \"{{version}}\"", exactly=1},
 ]
 

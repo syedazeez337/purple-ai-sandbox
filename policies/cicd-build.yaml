@@ -1,0 +1,101 @@
+# Policy 5: CI/CD Build Agent
+# Use Case: Automated build systems, testing, GitHub Actions runners
+# Security Level: High - needs many tools but carefully controlled
+#
+# Best Practices Applied:
+# - Uses default_deny: false with explicit deny list
+# - Output paths use /tmp/purple/
+# - Working directory is /tmp
+
+name: "cicd-build"
+description: "Sandbox for CI/CD build and test pipelines. Allows tool execution with network for package downloads."
+
+filesystem:
+  immutable_paths:
+    - host_path: "/usr"
+      sandbox_path: "/usr"
+    - host_path: "/lib"
+      sandbox_path: "/lib"
+    - host_path: "/lib64"
+      sandbox_path: "/lib64"
+    - host_path: "/bin"
+      sandbox_path: "/bin"
+    - host_path: "/etc/ssl"
+      sandbox_path: "/etc/ssl"
+    - host_path: "/etc/pki"
+      sandbox_path: "/etc/pki"
+  scratch_paths:
+    - "/tmp"
+    - "/var/tmp"
+  output_paths:
+    - host_path: "/tmp/purple/output/build-artifacts"
+      sandbox_path: "/artifacts"
+    - host_path: "/tmp/purple/output/test-results"
+      sandbox_path: "/test-results"
+  working_dir: "/tmp"
+
+syscalls:
+  default_deny: false
+  allow: []
+  deny:
+    # Kernel/system modification
+    - "mount"
+    - "umount2"
+    - "reboot"
+    - "kexec_load"
+    - "kexec_file_load"
+    - "init_module"
+    - "finit_module"
+    - "delete_module"
+    - "swapon"
+    - "swapoff"
+    - "sethostname"
+    - "setdomainname"
+    - "pivot_root"
+    - "chroot"
+    # Process debugging/tracing
+    - "ptrace"
+    - "process_vm_readv"
+    - "process_vm_writev"
+    # Privilege escalation
+    - "setuid"
+    - "setgid"
+    - "setreuid"
+    - "setregid"
+    - "setresuid"
+    - "setresgid"
+    - "capset"
+    # Security bypass
+    - "personality"
+    - "seccomp"
+    - "bpf"
+    - "perf_event_open"
+    - "userfaultfd"
+    - "io_uring_setup"
+    - "io_uring_enter"
+    - "io_uring_register"
+
+resources:
+  cpu_shares: 0.8
+  memory_limit_bytes: "8G"
+  pids_limit: 300
+  block_io_limit: "200MBps"
+  session_timeout_seconds: 3600
+
+capabilities:
+  default_drop: true
+  add: []
+
+network:
+  isolated: false
+  allow_outgoing:
+    - "443"
+    - "80"
+  allow_incoming: []
+
+audit:
+  enabled: true
+  log_path: "/var/log/purple/cicd-build.log"
+  detail_level:
+    - "syscall"
+    - "filesystem"

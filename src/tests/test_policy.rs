@@ -29,9 +29,9 @@ fn test_policy_compilation() {
 
     let compiled_policy = compiled.unwrap();
     assert_eq!(compiled_policy.name, "ai-dev-safe");
-    assert_eq!(compiled_policy.syscalls.default_deny, false);
+    assert!(!compiled_policy.syscalls.default_deny);
     assert!(!compiled_policy.syscalls.allowed_syscall_numbers.is_empty());
-    assert_eq!(compiled_policy.capabilities.default_drop, true);
+    assert!(compiled_policy.capabilities.default_drop);
     // Note: ai-dev-safe policy has add: [] (no added capabilities), which is valid
     assert!(compiled_policy.capabilities.added_capabilities.is_empty());
 }
@@ -77,7 +77,7 @@ fn test_network_compilation() {
     let network = compiled.network;
 
     // Check network policy compilation
-    assert_eq!(network.isolated, false);
+    assert!(!network.isolated);
     assert!(network.allowed_outgoing_ports.contains(&443)); // HTTPS
     assert!(network.allowed_outgoing_ports.contains(&53)); // DNS
     assert!(network.allowed_incoming_ports.is_empty());
@@ -135,6 +135,7 @@ fn create_test_policy_with_paths(
             log_path: PathBuf::from("/tmp/audit.log"),
             detail_level: vec![],
         },
+        ai_policy: None,
     }
 }
 
@@ -363,6 +364,7 @@ fn create_test_policy_with_resources(
             log_path: PathBuf::from("/tmp/audit.log"),
             detail_level: vec![],
         },
+        ai_policy: None,
     }
 }
 
@@ -494,6 +496,7 @@ fn create_test_policy_with_ports(outgoing: Vec<&str>, incoming: Vec<&str>) -> Po
             log_path: PathBuf::from("/tmp/audit.log"),
             detail_level: vec![],
         },
+        ai_policy: None,
     }
 }
 
@@ -593,6 +596,7 @@ fn test_empty_syscall_list_with_default_deny_rejected() {
             log_path: PathBuf::from("/tmp/audit.log"),
             detail_level: vec![],
         },
+        ai_policy: None,
     };
 
     let result = policy.compile();
@@ -646,6 +650,7 @@ fn test_empty_syscall_list_with_default_allow_accepted() {
             log_path: PathBuf::from("/tmp/audit.log"),
             detail_level: vec![],
         },
+        ai_policy: None,
     };
 
     let result = policy.compile();

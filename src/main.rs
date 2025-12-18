@@ -1,3 +1,4 @@
+mod ai;
 mod cli;
 mod error;
 mod policy;
@@ -64,17 +65,61 @@ fn main() {
 
                 // Create a default policy template
                 let default_policy = format!(
-                    "name: {}\"
-syscalls:\
-  default_deny: false\n  allow: []\n  deny: []\nresources:\
-  cpu_shares: 0.5\n  memory_limit_bytes: \"1G\"\n  pids_limit: 100\n  block_io_limit: \"100MBps\"\n  session_timeout_seconds: 60\ncapabilities:\
-  default_drop: true\n  add: []\nnetwork:\
-  isolated: false\n  allow_outgoing: []\n  allow_incoming: []\nfilesystem:\
-  immutable_paths:\
-    - host_path: \"/usr/bin\"\n      sandbox_path: \"/usr/bin\"\n    - host_path: \"/lib\"\n      sandbox_path: \"/lib\"\n    - host_path: \"/lib64\"\n      sandbox_path: \"/lib64\"\n  scratch_paths:\
-    - \"/tmp\"\n  output_paths: []\n  working_dir: \"/tmp\"\naudit:\
-  enabled: false\n  log_path: \"/var/log/purple/{}.log\"\n  detail_level: []\n",
-                    name, name
+                    r#"name: "{name}"
+description: "Default sandbox profile for {name}"
+
+filesystem:
+  immutable_paths:
+    - host_path: "/usr/bin"
+      sandbox_path: "/usr/bin"
+    - host_path: "/usr/lib"
+      sandbox_path: "/usr/lib"
+    - host_path: "/usr/lib64"
+      sandbox_path: "/usr/lib64"
+    - host_path: "/lib"
+      sandbox_path: "/lib"
+    - host_path: "/lib64"
+      sandbox_path: "/lib64"
+    - host_path: "/bin"
+      sandbox_path: "/bin"
+  scratch_paths:
+    - "/tmp"
+  output_paths: []
+  working_dir: "/tmp"
+
+syscalls:
+  default_deny: false
+  allow: []
+  deny:
+    - "mount"
+    - "umount2"
+    - "reboot"
+    - "kexec_load"
+    - "bpf"
+    - "ptrace"
+
+resources:
+  cpu_shares: 0.5
+  memory_limit_bytes: "1G"
+  pids_limit: 100
+  block_io_limit: "100MBps"
+  session_timeout_seconds: 3600
+
+capabilities:
+  default_drop: true
+  add: []
+
+network:
+  isolated: true
+  allow_outgoing: []
+  allow_incoming: []
+
+audit:
+  enabled: false
+  log_path: "/var/log/purple/{name}.log"
+  detail_level: []
+"#,
+                    name = name
                 );
 
                 // Create policies directory if it doesn't exist

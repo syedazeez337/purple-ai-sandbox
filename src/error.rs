@@ -134,5 +134,11 @@ impl From<SeccompError> for PurpleError {
     }
 }
 
+impl From<serde_json::Error> for PurpleError {
+    fn from(err: serde_json::Error) -> Self {
+        PurpleError::PolicyError(format!("JSON parsing error: {}", err))
+    }
+}
+
 /// Result type for Purple operations
 pub type Result<T> = std::result::Result<T, PurpleError>;

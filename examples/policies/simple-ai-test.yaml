@@ -1,0 +1,73 @@
+# Simple AI Policy for Market Validation
+# This policy demonstrates the core AI monitoring capabilities
+
+name: "simple-ai-test"
+description: "Basic AI monitoring policy for market validation"
+
+# Filesystem configuration
+filesystem:
+  immutable_paths:
+    - host_path: "/usr/bin"
+      sandbox_path: "/usr/bin"
+    - host_path: "/usr/lib"
+      sandbox_path: "/usr/lib"
+    - host_path: "/lib"
+      sandbox_path: "/lib"
+  scratch_paths:
+    - "/tmp"
+  output_paths: []
+  working_dir: "/tmp"
+
+# Syscall filtering
+syscalls:
+  default_deny: false
+  allow: []
+  deny:
+    - "mount"
+    - "umount2"
+    - "reboot"
+    - "kexec_load"
+    - "bpf"
+    - "ptrace"
+
+# Resource limits
+resources:
+  cpu_shares: 0.5
+  memory_limit_bytes: "512M"
+  pids_limit: 20
+  block_io_limit: "50MBps"
+  session_timeout_seconds: 600
+
+# Capability management
+capabilities:
+  default_drop: true
+  add: []
+
+# Network configuration
+network:
+  isolated: true
+  allow_outgoing: []
+  allow_incoming: []
+
+# Audit configuration
+audit:
+  enabled: true
+  log_path: "/var/log/purple/simple-ai-test.log"
+  detail_level: []
+
+# AI-Specific Policies (CORE FEATURE)
+ai_policy:
+  # Budget limits for token and cost control
+  budget:
+    max_tokens: 10000  # 10K tokens limit
+    max_cost: "$5.00"  # $5.00 cost limit
+
+  # Monitoring and logging settings
+  monitoring:
+    log_prompts: false  # Don't log actual prompts for privacy
+    log_responses: false # Don't log actual responses for privacy
+    log_tokens: true    # Log token usage statistics
+    log_costs: true     # Log cost information
+
+# Usage:
+# ./purple run --profile simple-ai-test -- python3 examples/scripts/simple_ai_agent.py
