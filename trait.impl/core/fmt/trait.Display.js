@@ -1,9 +1,9 @@
 (function() {
-    var implementors = Object.fromEntries([["purple",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.92.0/core/fmt/trait.Display.html\" title=\"trait core::fmt::Display\">Display</a> for <a class=\"enum\" href=\"purple/error/enum.PurpleError.html\" title=\"enum purple::error::PurpleError\">PurpleError</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.92.0/core/fmt/trait.Display.html\" title=\"trait core::fmt::Display\">Display</a> for <a class=\"struct\" href=\"purple/error/struct.EnhancedError.html\" title=\"struct purple::error::EnhancedError\">EnhancedError</a>"]]]]);
+    var implementors = Object.fromEntries([["purple",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.92.0/core/fmt/trait.Display.html\" title=\"trait core::fmt::Display\">Display</a> for <a class=\"enum\" href=\"purple/ai/budget/enum.BudgetExceeded.html\" title=\"enum purple::ai::budget::BudgetExceeded\">BudgetExceeded</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.92.0/core/fmt/trait.Display.html\" title=\"trait core::fmt::Display\">Display</a> for <a class=\"enum\" href=\"purple/error/enum.PurpleError.html\" title=\"enum purple::error::PurpleError\">PurpleError</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.92.0/core/fmt/trait.Display.html\" title=\"trait core::fmt::Display\">Display</a> for <a class=\"struct\" href=\"purple/error/struct.EnhancedError.html\" title=\"struct purple::error::EnhancedError\">EnhancedError</a>"]]]]);
     if (window.register_implementors) {
         window.register_implementors(implementors);
     } else {
         window.pending_implementors = implementors;
     }
 })()
-//{"start":57,"fragment_lengths":[562]}
+//{"start":57,"fragment_lengths":[849]}

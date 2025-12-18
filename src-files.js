@@ -1,2 +1,2 @@
-createSrcSidebar('[["purple",["",[["policy",[],["compiler.rs","mod.rs","parser.rs"]],["sandbox",[],["cgroups.rs","linux_namespaces.rs","manager.rs","mod.rs","seccomp.rs"]]],["cli.rs","error.rs","logging.rs","main.rs"]]]]');
-//{"start":19,"fragment_lengths":[200]}
+createSrcSidebar('[["purple",["",[["ai",[],["api_monitor.rs","budget.rs","cost.rs","mod.rs"]],["policy",[],["compiler.rs","mod.rs","parser.rs"]],["sandbox",[],["cgroups.rs","linux_namespaces.rs","manager.rs","mod.rs","seccomp.rs"]]],["cli.rs","error.rs","logging.rs","main.rs"]]]]');
+//{"start":19,"fragment_lengths":[260]}

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["BudgetExceeded"],"struct":["Budget","BudgetEnforcer","BudgetUsage"]};
