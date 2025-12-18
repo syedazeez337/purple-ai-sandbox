@@ -268,37 +268,55 @@ impl CgroupManager {
         // Wait a moment for processes to terminate
         std::thread::sleep(std::time::Duration::from_millis(100));
 
-        // Remove the cgroup directory
-        // Note: cgroup directories can only be removed when they have no processes
+        // Remove the cgroup directory with retries
         if self.cgroup_path.exists() {
-            match fs::remove_dir(&self.cgroup_path) {
-                Ok(_) => {
-                    log::info!("✓ Cgroup {} removed successfully", self.cgroup_name);
-                }
-                Err(e) => {
-                    // EBUSY means processes are still running
-                    if e.kind() == std::io::ErrorKind::Other || e.raw_os_error() == Some(16) {
-                        log::warn!(
-                            "Cgroup {} still has processes, attempting force cleanup",
-                            self.cgroup_name
-                        );
-                        // Try again after killing processes more aggressively
-                        self.force_kill_cgroup_processes()?;
-                        std::thread::sleep(std::time::Duration::from_millis(200));
+            let max_retries = 5;
+            let mut last_error = None;
 
-                        if let Err(e2) = fs::remove_dir(&self.cgroup_path) {
-                            log::warn!(
-                                "Failed to remove cgroup directory after force kill: {}",
-                                e2
-                            );
-                            // Don't fail - the cgroup will be orphaned but sandbox still works
+            for attempt in 1..=max_retries {
+                match fs::remove_dir(&self.cgroup_path) {
+                    Ok(_) => {
+                        log::info!("✓ Cgroup {} removed successfully", self.cgroup_name);
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        // EBUSY means processes are still running or kernel is cleaning up
+                        if e.kind() == std::io::ErrorKind::Other || e.raw_os_error() == Some(16) {
+                            if attempt == 1 {
+                                log::warn!(
+                                    "Cgroup {} still busy, attempting force cleanup...",
+                                    self.cgroup_name
+                                );
+                                // Try to force kill if not already done
+                                self.force_kill_cgroup_processes()?;
+                            }
+                            log::debug!("Attempt {}/{} failed: {}", attempt, max_retries, e);
+                            std::thread::sleep(std::time::Duration::from_millis(
+                                200 * attempt as u64,
+                            ));
+                            last_error = Some(e);
+                        } else if e.kind() == std::io::ErrorKind::NotFound {
+                            log::debug!("Cgroup {} already removed", self.cgroup_name);
+                            return Ok(());
+                        } else {
+                            // Other errors are likely fatal/permanent
+                            log::warn!("Failed to remove cgroup {}: {}", self.cgroup_name, e);
+                            return Err(crate::error::PurpleError::ResourceError(format!(
+                                "Failed to remove cgroup: {}",
+                                e
+                            )));
                         }
-                    } else if e.kind() == std::io::ErrorKind::NotFound {
-                        log::debug!("Cgroup {} already removed", self.cgroup_name);
-                    } else {
-                        log::warn!("Failed to remove cgroup {}: {}", self.cgroup_name, e);
                     }
                 }
+            }
+
+            if let Some(e) = last_error {
+                log::warn!(
+                    "Failed to remove cgroup directory after {} attempts: {}",
+                    max_retries,
+                    e
+                );
+                // Don't fail the sandbox execution for cleanup failure, but log it clearly
             }
         } else {
             log::debug!(
@@ -462,7 +480,7 @@ pub fn generate_sandbox_id() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     match SystemTime::now().duration_since(UNIX_EPOCH) {
-        Ok(duration) => format!("{}", duration.as_secs()),
+        Ok(duration) => format!("{}", duration.as_nanos()),
         Err(_) => "0".to_string(),
     }
 }

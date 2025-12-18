@@ -19,7 +19,9 @@ filesystem:
       sandbox_path: "/usr/lib64"
   scratch_paths:
     - "/tmp"
-  output_paths: []
+  output_paths: 
+    - host_path: "./examples"
+      sandbox_path: "/examples"
   working_dir: "/tmp"
 
 # Syscall filtering

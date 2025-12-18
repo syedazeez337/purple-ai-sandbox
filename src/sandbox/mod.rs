@@ -87,6 +87,7 @@ pub struct Sandbox {
     policy: CompiledPolicy,
     agent_command: Vec<String>,
     sandbox_id: String,
+    sandbox_root: std::path::PathBuf,
     /// AI API monitor for tracking LLM calls
     #[allow(dead_code)]
     api_monitor: LLMAPIMonitor,
@@ -99,6 +100,7 @@ impl Sandbox {
     pub fn new(policy: CompiledPolicy, agent_command: Vec<String>) -> Self {
         // Generate sandbox ID upfront so parent and child can both reference the same cgroup
         let sandbox_id = cgroups::generate_sandbox_id();
+        let sandbox_root = std::path::PathBuf::from(format!("/tmp/purple-sandbox-{}", sandbox_id));
 
         // Initialize AI components
         let api_monitor = LLMAPIMonitor::new();
@@ -124,6 +126,7 @@ impl Sandbox {
             policy,
             agent_command,
             sandbox_id,
+            sandbox_root,
             api_monitor,
             budget_enforcer,
         }
@@ -261,11 +264,13 @@ impl Sandbox {
     }
 
     /// Sets up a panic hook to attempt cleanup on unexpected failures
-    fn setup_panic_cleanup_hook(&self) {
+    fn setup_panic_cleanup_hook(&self) -> Result<()> {
+        // Changed return type to match Result usage in other methods if needed, but original was void. Wait, original was void. I'll keep it void if I can, but I need to handle errors inside? No, it just sets hook.
         use std::panic;
 
         // Store sandbox_id for the panic hook
         let sandbox_id = self.sandbox_id.clone();
+        let sandbox_root = self.sandbox_root.clone();
 
         // Set up a custom panic hook that attempts cleanup
         let original_hook = panic::take_hook();
@@ -285,9 +290,8 @@ impl Sandbox {
             }
 
             // Try to clean up filesystem
-            let sandbox_root = "/tmp/purple-sandbox";
-            if std::path::Path::new(sandbox_root).exists() {
-                if let Err(e) = std::fs::remove_dir_all(sandbox_root) {
+            if sandbox_root.exists() {
+                if let Err(e) = std::fs::remove_dir_all(&sandbox_root) {
                     log::error!(
                         "⚠️  Failed to cleanup sandbox filesystem during panic: {}",
                         e
@@ -302,6 +306,7 @@ impl Sandbox {
         }));
 
         log::info!("✓ Panic cleanup hook installed");
+        Ok(())
     }
 
     /// Cleans up orphaned filesystems from previous failed runs
@@ -375,7 +380,9 @@ impl Sandbox {
         log::info!("✓ Orphaned resource cleanup completed");
 
         // Set up panic hook for cleanup on unexpected failures
-        self.setup_panic_cleanup_hook();
+        if let Err(e) = self.setup_panic_cleanup_hook() {
+            log::warn!("Failed to setup panic hook: {}", e);
+        }
 
         // Validate cgroup functionality before proceeding
         if self.policy.resources.has_resource_limits() {
@@ -530,7 +537,7 @@ impl Sandbox {
         log::info!("Setting up filesystem isolation...");
 
         // Create temporary directory structure for the sandbox
-        let sandbox_root = "/tmp/purple-sandbox";
+        let sandbox_root = &self.sandbox_root;
         fs::create_dir_all(sandbox_root).map_err(|e| {
             PurpleError::FilesystemError(format!("Failed to create sandbox root: {}", e))
         })?;
@@ -743,9 +750,13 @@ impl Sandbox {
         }
 
         // Change root to the sandbox directory
-        log::info!("Changing root to {}", sandbox_root);
+        log::info!("Changing root to {}", sandbox_root.display());
         chroot(sandbox_root).map_err(|e| {
-            PurpleError::FilesystemError(format!("Failed to chroot to {}: {}", sandbox_root, e))
+            PurpleError::FilesystemError(format!(
+                "Failed to chroot to {}: {}",
+                sandbox_root.display(),
+                e
+            ))
         })?;
 
         // Change working directory
@@ -1589,7 +1600,7 @@ impl Sandbox {
     }
 
     /// Creates a secure minimal /dev filesystem with only essential devices
-    fn setup_secure_dev(&self, sandbox_root: &str) -> Result<()> {
+    fn setup_secure_dev(&self, sandbox_root: &Path) -> Result<()> {
         use std::os::unix::fs::PermissionsExt;
 
         log::info!("Setting up secure minimal /dev filesystem");
@@ -1602,7 +1613,7 @@ impl Sandbox {
             can_change_permissions
         );
 
-        let dev_path = Path::new(sandbox_root).join("dev");
+        let dev_path = sandbox_root.join("dev");
 
         // Create /dev directory with restricted permissions
         fs::create_dir_all(&dev_path).map_err(|e| {
@@ -1707,10 +1718,10 @@ impl Sandbox {
     }
 
     /// Creates a secure read-only /sys filesystem
-    fn setup_secure_sys(&self, sandbox_root: &str) -> Result<()> {
+    fn setup_secure_sys(&self, sandbox_root: &Path) -> Result<()> {
         log::info!("Setting up secure read-only /sys filesystem");
 
-        let sys_path = Path::new(sandbox_root).join("sys");
+        let sys_path = sandbox_root.join("sys");
 
         // Create /sys directory
         fs::create_dir_all(&sys_path).map_err(|e| {
@@ -1878,14 +1889,21 @@ impl Sandbox {
 
         // Clean up temporary sandbox directory
         log::info!("Cleaning up sandbox filesystem...");
-        let sandbox_root = "/tmp/purple-sandbox";
-        if Path::new(sandbox_root).exists() {
+        let sandbox_root = &self.sandbox_root;
+        if sandbox_root.exists() {
             // Note: We can't unmount from parent process, but we can try to clean up
             // The mounts will be cleaned up automatically when the namespace is destroyed
             log::info!(
                 "Sandbox directory exists at {} (will be cleaned by namespace destruction)",
-                sandbox_root
+                sandbox_root.display()
             );
+
+            // Actually remove the directory structure
+            if let Err(e) = fs::remove_dir_all(sandbox_root) {
+                log::warn!("Failed to remove sandbox directory: {}", e);
+            } else {
+                log::info!("✓ Sandbox directory removed");
+            }
         }
 
         log::info!("Sandbox execution completed");
