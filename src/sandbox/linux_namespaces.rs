@@ -68,19 +68,11 @@ pub fn unshare_user_namespace() -> Result<(Uid, Gid), String> {
         Ok(mut uid_map_file) => {
             let uid_map_content = format!("0 {} 1\n", ruid);
             if let Err(e) = uid_map_file.write_all(uid_map_content.as_bytes()) {
-                if e.kind() == std::io::ErrorKind::PermissionDenied {
-                    log::warn!(
-                        "Failed to write to {}: {}. Continuing without UID mapping.",
-                        uid_map_path.display(),
-                        e
-                    );
-                } else {
-                    return Err(format!(
-                        "Failed to write to {}: {}",
-                        uid_map_path.display(),
-                        e
-                    ));
-                }
+                return Err(format!(
+                    "Failed to write to {}: {}",
+                    uid_map_path.display(),
+                    e
+                ));
             } else {
                 log::info!("UID map written: {}", uid_map_content.trim());
             }
@@ -94,19 +86,11 @@ pub fn unshare_user_namespace() -> Result<(Uid, Gid), String> {
         Ok(mut gid_map_file) => {
             let gid_map_content = format!("0 {} 1\n", rgid);
             if let Err(e) = gid_map_file.write_all(gid_map_content.as_bytes()) {
-                if e.kind() == std::io::ErrorKind::PermissionDenied {
-                    log::warn!(
-                        "Failed to write to {}: {}. Continuing without GID mapping.",
-                        gid_map_path.display(),
-                        e
-                    );
-                } else {
-                    return Err(format!(
-                        "Failed to write to {}: {}",
-                        gid_map_path.display(),
-                        e
-                    ));
-                }
+                return Err(format!(
+                    "Failed to write to {}: {}",
+                    gid_map_path.display(),
+                    e
+                ));
             } else {
                 log::info!("GID map written: {}", gid_map_content.trim());
             }
