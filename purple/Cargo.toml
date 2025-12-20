@@ -1,0 +1,81 @@
+[package]
+name = "purple"
+version = "0.1.0"
+edition = "2024"
+authors = ["Purple AI Sandbox Team <team@purple-sandbox.io>"]
+description = "Secure, isolated execution environment for AI agents with comprehensive sandboxing"
+homepage = "https://github.com/your-org/purple"
+repository = "https://github.com/your-org/purple"
+readme = "README.md"
+license = "Apache-2.0"
+keywords = ["sandbox", "security", "ai", "isolation", "container"]
+categories = ["security", "virtualization", "os"]
+
+[dependencies]
+clap = { workspace = true }
+env_logger = { workspace = true }
+log = { workspace = true }
+nix = { workspace = true }
+ctrlc = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+serde_json = { workspace = true }
+once_cell = { workspace = true }
+uuid = { workspace = true }
+libseccomp = { workspace = true }
+cgroups-rs = { workspace = true }
+caps = { workspace = true }
+libc = { workspace = true }
+hyper = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
+hyper-util = { workspace = true }
+regex = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# eBPF dependencies (optional feature)
+aya = { version = "0.13", optional = true }
+aya-log = { version = "0.2.1", optional = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[features]
+default = []
+ebpf = ["aya", "aya-log"]
+
+# Note: eBPF programs are built via direct cargo invocation in build.rs
+# when the "ebpf" feature is enabled
+
+[package.metadata.docs.rs]
+features = ["all"]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[package.metadata.release]
+pre-release-replacements = [
+    {file="CHANGELOG.md", search="Unreleased", replace="{{version}}", exactly=1},
+    {file="CHANGELOG.md", search="\\d{4}\\-\\d{2}\\-\\d{2}", replace="{{date}}", exactly=1},
+    {file="Cargo.toml", search="version = \"0.1.0\"", replace="version = \"{{version}}\"", exactly=1},
+]
+
+[package.metadata.publish]
+registry = "crates-io"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+opt-level = 1
+debug = true
+
+[profile.test]
+opt-level = 2
+debug = true
