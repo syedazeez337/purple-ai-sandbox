@@ -25,6 +25,10 @@ path = "src/file.bpf.rs"
 name = "network"
 path = "src/network.bpf.rs"
 
+[[bin]]
+name = "network_filter"
+path = "src/network_filter.bpf.rs"
+
 [profile.dev]
 opt-level = 3
 debug = false

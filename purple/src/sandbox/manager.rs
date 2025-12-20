@@ -23,6 +23,7 @@ pub struct SandboxInstance {
     status: SandboxStatus,
     start_time: std::time::SystemTime,
     resource_usage: ResourceUsage,
+    allocation: ResourceAllocation,
 }
 
 /// Current status of a sandbox
@@ -149,6 +150,7 @@ impl SandboxManager {
             status: SandboxStatus::Initializing,
             start_time: std::time::SystemTime::now(),
             resource_usage: ResourceUsage::default(),
+            allocation: allocation.clone(),
         };
 
         // Store in manager
@@ -222,17 +224,23 @@ impl SandboxManager {
     }
 
     /// Cleans up a completed sandbox
-    pub fn cleanup_sandbox(&self, sandbox_id: &str) -> Result<()> {
+    pub fn cleanup_sandbox(&mut self, sandbox_id: &str) -> Result<()> {
         let mut sandboxes = self.sandboxes.lock().map_err(|e| {
             PurpleError::SandboxError(format!("Failed to lock sandbox manager: {}", e))
         })?;
 
-        if let Some(_instance) = sandboxes.remove(sandbox_id) {
-            // In a real implementation, this would:
-            // 1. Clean up filesystem resources
-            // 2. Release network resources
-            // 3. Remove cgroups
-            // 4. Clean up temporary files
+        if let Some(instance) = sandboxes.remove(sandbox_id) {
+            // Perform actual cleanup of resources
+            log::info!("Cleaning up resources for sandbox {}", sandbox_id);
+
+            // 1. Clean up filesystem, cgroups, etc.
+            if let Err(e) = instance.sandbox.cleanup_and_audit() {
+                log::warn!("Error during sandbox cleanup: {}", e);
+                // Continue with resource release even if cleanup failed
+            }
+
+            // 2. Release allocated resources back to the pool
+            self.resource_pool.release(&instance.allocation);
 
             log::info!("Cleaned up sandbox {}", sandbox_id);
             Ok(())

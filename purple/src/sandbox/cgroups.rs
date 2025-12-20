@@ -141,6 +141,16 @@ impl CgroupManager {
             );
             let memory_limit_path = self.cgroup_path.join("memory.max");
             fs::write(memory_limit_path, format!("{}", memory_limit))?;
+
+            // Disable swap to ensure strict enforcement
+            let swap_limit_path = self.cgroup_path.join("memory.swap.max");
+            if swap_limit_path.exists() {
+                if let Err(e) = fs::write(swap_limit_path, "0") {
+                    log::warn!("Failed to disable swap (non-fatal): {}", e);
+                } else {
+                    log::info!("Swap disabled for strict memory enforcement");
+                }
+            }
         } else {
             log::info!("No memory limit specified");
         }

@@ -465,6 +465,7 @@ audit:
                             trace_syscalls: policy.ebpf_monitoring.trace_syscalls,
                             trace_files: policy.ebpf_monitoring.trace_files,
                             trace_network: policy.ebpf_monitoring.trace_network,
+                            enable_network_filter: false, // Monitor mode doesn't enforce blocking usually
                         };
 
                         // Create and load eBPF programs

@@ -47,6 +47,7 @@ fn create_test_policy(name: &str) -> CompiledPolicy {
             isolated: true,
             allowed_outgoing_ports: HashSet::new(),
             allowed_incoming_ports: HashSet::new(),
+            blocked_ips: HashSet::new(),
         },
         audit: CompiledAuditPolicy {
             enabled: false,

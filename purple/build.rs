@@ -21,7 +21,7 @@ fn main() {
         println!("cargo:warning=eBPF output directory: {:?}", target_dir);
 
         // Build each eBPF binary
-        for bin_name in &["syscall", "file_access", "network"] {
+        for bin_name in &["syscall", "file_access", "network", "network_filter"] {
             let status = Command::new("rustup")
                 .args([
                     "run",
