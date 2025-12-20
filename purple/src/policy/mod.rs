@@ -106,6 +106,9 @@ pub struct NetworkPolicy {
     /// Allowed incoming connections.
     #[serde(default)]
     pub allow_incoming: Vec<String>,
+    /// Blocked IP addresses (for eBPF filter).
+    #[serde(default)]
+    pub blocked_ips: Vec<String>,
 }
 
 /// Defines audit logging settings.

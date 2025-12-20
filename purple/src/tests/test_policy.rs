@@ -139,6 +139,7 @@ fn create_test_policy_with_paths(
             isolated: true,
             allow_outgoing: vec![],
             allow_incoming: vec![],
+            blocked_ips: vec![],
         },
         audit: AuditPolicy {
             enabled: false,
@@ -369,6 +370,7 @@ fn create_test_policy_with_resources(
             isolated: true,
             allow_outgoing: vec![],
             allow_incoming: vec![],
+            blocked_ips: vec![],
         },
         audit: AuditPolicy {
             enabled: false,
@@ -502,6 +504,7 @@ fn create_test_policy_with_ports(outgoing: Vec<&str>, incoming: Vec<&str>) -> Po
             isolated: false,
             allow_outgoing: outgoing.iter().map(|s| s.to_string()).collect(),
             allow_incoming: incoming.iter().map(|s| s.to_string()).collect(),
+            blocked_ips: vec![],
         },
         audit: AuditPolicy {
             enabled: false,
@@ -603,6 +606,7 @@ fn test_empty_syscall_list_with_default_deny_rejected() {
             isolated: true,
             allow_outgoing: vec![],
             allow_incoming: vec![],
+            blocked_ips: vec![],
         },
         audit: AuditPolicy {
             enabled: false,
@@ -658,6 +662,7 @@ fn test_empty_syscall_list_with_default_allow_accepted() {
             isolated: true,
             allow_outgoing: vec![],
             allow_incoming: vec![],
+            blocked_ips: vec![],
         },
         audit: AuditPolicy {
             enabled: false,

@@ -12,7 +12,7 @@ use aya::Ebpf;
 #[cfg(feature = "ebpf")]
 use aya::maps::{HashMap as AyaHashMap, RingBuf};
 #[cfg(feature = "ebpf")]
-use aya::programs::{KProbe, TracePoint};
+use aya::programs::{CgroupSkb, KProbe, TracePoint};
 
 use crate::sandbox::ebpf::events::{FileAccessEvent, NetworkEvent, SyscallEvent};
 
@@ -34,6 +34,7 @@ pub struct EbpfConfig {
     pub trace_syscalls: bool,
     pub trace_files: bool,
     pub trace_network: bool,
+    pub enable_network_filter: bool,
 }
 
 /// eBPF loader and manager
@@ -45,6 +46,8 @@ pub struct EbpfLoader {
     file_bpf: Option<Ebpf>,
     /// The network tracer eBPF program
     network_bpf: Option<Ebpf>,
+    /// The network filter eBPF program
+    network_filter_bpf: Option<Ebpf>,
     /// Configuration
     config: EbpfConfig,
     /// Flag to indicate if programs are attached
@@ -65,6 +68,7 @@ impl EbpfLoader {
             trace_syscalls: true,
             trace_files: true,
             trace_network: true,
+            enable_network_filter: true,
         })
     }
 
@@ -74,6 +78,7 @@ impl EbpfLoader {
             syscall_bpf: None,
             file_bpf: None,
             network_bpf: None,
+            network_filter_bpf: None,
             config,
             attached: false,
             shutdown: Arc::new(AtomicBool::new(false)),
@@ -126,6 +131,21 @@ impl EbpfLoader {
                 self.load_network_tracer(&bytes)?;
             } else {
                 log::warn!("Network tracer not found at {:?}", network_path);
+            }
+        }
+
+        // Load network filter
+        if self.config.enable_network_filter {
+            let filter_path = programs_dir.join("network_filter");
+            if filter_path.exists() {
+                log::debug!("Loading network filter from {:?}", filter_path);
+                let bytes = std::fs::read(&filter_path).map_err(|e| {
+                    EbpfError::LoadError(format!("Failed to read network filter program: {}", e))
+                })?;
+                self.load_network_filter(&bytes)?;
+            } else {
+                // Don't warn heavily if missing, might be optional
+                log::debug!("Network filter not found at {:?}", filter_path);
             }
         }
 
@@ -204,6 +224,31 @@ impl EbpfLoader {
         Ok(())
     }
 
+    /// Load eBPF network filter from compiled bytecode
+    pub fn load_network_filter(&mut self, bytes: &[u8]) -> Result<(), EbpfError> {
+        log::info!("Loading eBPF network filter ({} bytes)", bytes.len());
+
+        let mut bpf = Ebpf::load(bytes).map_err(|e| {
+            EbpfError::LoadError(format!("Failed to load network filter BPF: {}", e))
+        })?;
+
+        // Get the cgroup_skb program
+        let program: &mut CgroupSkb = bpf
+            .program_mut("block_outbound")
+            .ok_or_else(|| EbpfError::LoadError("block_outbound program not found".to_string()))?
+            .try_into()
+            .map_err(|e| EbpfError::LoadError(format!("Failed to get CgroupSkb: {}", e)))?;
+
+        // Load the program
+        program.load().map_err(|e| {
+            EbpfError::LoadError(format!("Failed to load CgroupSkb program: {}", e))
+        })?;
+
+        self.network_filter_bpf = Some(bpf);
+        log::info!("Network filter loaded successfully");
+        Ok(())
+    }
+
     /// Attach all loaded programs to their targets
     pub fn attach_programs(&mut self) -> Result<(), EbpfError> {
         if self.attached {
@@ -254,6 +299,57 @@ impl EbpfLoader {
         }
 
         self.attached = true;
+        Ok(())
+    }
+
+    /// Attach network filter to a specific cgroup
+    pub fn attach_network_filter(&mut self, cgroup_file: std::fs::File) -> Result<(), EbpfError> {
+        if let Some(bpf) = &mut self.network_filter_bpf {
+            let program: &mut CgroupSkb = bpf
+                .program_mut("block_outbound")
+                .ok_or_else(|| EbpfError::AttachError("block_outbound not found".to_string()))?
+                .try_into()
+                .map_err(|e| EbpfError::AttachError(format!("Failed to get CgroupSkb: {}", e)))?;
+
+            // Attach to the cgroup file descriptor
+            // CgroupSkb::attach takes an AsRawFd (File works)
+            let attach_type = aya::programs::CgroupSkbAttachType::Egress;
+            let attach_mode = aya::programs::CgroupAttachMode::Single;
+            // We want to block OUTBOUND traffic
+
+            program
+                .attach(cgroup_file, attach_type, attach_mode)
+                .map_err(|e| {
+                    EbpfError::AttachError(format!("Failed to attach network filter: {}", e))
+                })?;
+
+            log::info!("Network filter attached to cgroup (Egress)");
+        }
+        Ok(())
+    }
+
+    /// Add an IP to the blocklist
+    pub fn block_ip(&mut self, ip: std::net::Ipv4Addr) -> Result<(), EbpfError> {
+        if let Some(bpf) = &mut self.network_filter_bpf {
+            let mut blocklist: AyaHashMap<_, u32, u8> = bpf
+                .map_mut("BLOCKED_IPS")
+                .ok_or_else(|| EbpfError::MapError("BLOCKED_IPS map not found".to_string()))?
+                .try_into()
+                .map_err(|e| EbpfError::MapError(format!("Failed to get blocklist map: {}", e)))?;
+
+            // IP should be in network byte order (Big Endian) as that's how BPF sees it
+            // u32::from(ip) is Host Byte Order.
+            // BPF ctx.load::<u32>(16) loads raw bytes.
+            // 1.2.3.4 -> 0x01020304 in Big Endian.
+            // If Host is Little Endian (x86), u32::from is 0x04030201.
+            // We need to convert to Network Byte Order (Big Endian).
+            let ip_u32 = u32::from(ip).to_be();
+
+            blocklist.insert(ip_u32, 1, 0).map_err(|e| {
+                EbpfError::MapError(format!("Failed to insert IP into blocklist: {}", e))
+            })?;
+            log::debug!("Blocked IP: {}", ip);
+        }
         Ok(())
     }
 
@@ -443,6 +539,7 @@ impl Default for EbpfLoader {
                     syscall_bpf: None,
                     file_bpf: None,
                     network_bpf: None,
+                    network_filter_bpf: None,
                     config: EbpfConfig::default(),
                     attached: false,
                     shutdown: Arc::new(AtomicBool::new(false)),

@@ -338,6 +338,8 @@ pub struct CompiledNetworkPolicy {
     pub isolated: bool,
     pub allowed_outgoing_ports: HashSet<u16>, // e.g., 443, 53
     pub allowed_incoming_ports: HashSet<u16>,
+    #[allow(dead_code)]
+    pub blocked_ips: HashSet<std::net::Ipv4Addr>,
 }
 
 /// Compiled audit rules.
@@ -485,10 +487,19 @@ impl Policy {
             allowed_incoming_ports.insert(port);
         }
 
+        let mut blocked_ips = HashSet::new();
+        for (idx, ip_str) in self.network.blocked_ips.iter().enumerate() {
+            let ip: std::net::Ipv4Addr = ip_str
+                .parse()
+                .map_err(|e| format!("Invalid blocked_ips[{}] '{}': {}", idx, ip_str, e))?;
+            blocked_ips.insert(ip);
+        }
+
         let compiled_network = CompiledNetworkPolicy {
             isolated: self.network.isolated,
             allowed_outgoing_ports,
             allowed_incoming_ports,
+            blocked_ips,
         };
 
         // --- Audit Compilation ---

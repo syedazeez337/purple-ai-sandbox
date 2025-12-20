@@ -429,6 +429,14 @@ impl Sandbox {
             None
         };
 
+        // Attach eBPF Network Filter to Cgroup if available
+        #[cfg(feature = "ebpf")]
+        if let Some(ref manager) = cgroup_manager
+            && let Err(e) = self.attach_ebpf_to_cgroup(manager)
+        {
+            log::warn!("Failed to attach eBPF to cgroup: {}", e);
+        }
+
         // 1. Setup user namespace first (required for privilege management)
         log::info!("Setting up user namespace...");
         let (_sandbox_uid, _sandbox_gid) =
@@ -1888,7 +1896,7 @@ impl Sandbox {
     }
 
     /// Cleans up resources and performs audit logging
-    fn cleanup_and_audit(&self) -> Result<()> {
+    pub fn cleanup_and_audit(&self) -> Result<()> {
         log::info!("Performing cleanup and audit logging...");
 
         if self.policy.audit.enabled {
@@ -2083,6 +2091,7 @@ impl Sandbox {
             trace_syscalls: ebpf_policy.trace_syscalls,
             trace_files: ebpf_policy.trace_files,
             trace_network: ebpf_policy.trace_network,
+            enable_network_filter: true,
         };
 
         // Create the loader with config
@@ -2133,6 +2142,41 @@ impl Sandbox {
                 log::warn!("Failed to register PID {} with eBPF: {}", pid, e);
             } else {
                 log::info!("Registered PID {} with eBPF filters", pid);
+            }
+        }
+        Ok(())
+    }
+
+    /// Attach eBPF programs to the sandbox cgroup
+    #[cfg(feature = "ebpf")]
+    pub fn attach_ebpf_to_cgroup(&mut self, cgroup_manager: &cgroups::CgroupManager) -> Result<()> {
+        if let Some(loader) = &mut self.ebpf_loader {
+            // Open cgroup directory as File
+            let cgroup_path = &cgroup_manager.cgroup_path;
+            let cgroup_file = std::fs::File::open(cgroup_path).map_err(|e| {
+                PurpleError::ResourceError(format!("Failed to open cgroup for eBPF attach: {}", e))
+            })?;
+
+            // loader.attach_network_filter takes std::fs::File which implements AsRawFd
+            if let Err(e) = loader.attach_network_filter(cgroup_file) {
+                log::warn!("Failed to attach network filter: {}", e);
+            } else {
+                log::info!("✓ Network filter attached to sandbox cgroup");
+
+                // Populate IP blocklist
+                if !self.policy.network.blocked_ips.is_empty() {
+                    log::info!(
+                        "Applying {} IP block rules...",
+                        self.policy.network.blocked_ips.len()
+                    );
+                    for ip in &self.policy.network.blocked_ips {
+                        if let Err(e) = loader.block_ip(*ip) {
+                            log::warn!("Failed to block IP {}: {}", ip, e);
+                        } else {
+                            log::debug!("Blocked IP: {}", ip);
+                        }
+                    }
+                }
             }
         }
         Ok(())
