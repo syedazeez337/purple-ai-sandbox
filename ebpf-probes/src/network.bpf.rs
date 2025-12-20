@@ -35,7 +35,7 @@ pub fn network_connect(ctx: ProbeContext) -> u32 {
     }
 }
 
-fn try_network_connect(_ctx: &ProbeContext) -> Result<u32, i64> {
+fn try_network_connect(ctx: &ProbeContext) -> Result<u32, i64> {
     // Get current PID and TGID
     let pid_tgid = bpf_get_current_pid_tgid();
     let pid = (pid_tgid >> 32) as u32;
@@ -50,12 +50,33 @@ fn try_network_connect(_ctx: &ProbeContext) -> Result<u32, i64> {
     // tcp_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
     // We need to read from the sock structure to get connection details
 
-    // For now, we'll create a placeholder event
-    // In a real implementation, we'd read from the sock structure
-    let source_port: u16 = 0;
-    let dest_ip: [u8; 4] = [0, 0, 0, 0];
-    let dest_port: u16 = 0;
-    let bytes: u32 = 0;
+    // Read from the sock structure to get actual connection details
+    let source_port: u16 = unsafe {
+        let sk_ptr = ctx.arg(0).unwrap_or(0 as *const u8);
+        // Read source port from sock structure
+        // sock->sk_num is the source port (network byte order)
+        let sk_num_offset = 16; // Offset to sk_num in sock structure
+        let sk_num_bytes: u16 = core::ptr::read_volatile(sk_ptr.add(sk_num_offset) as *const u16);
+        sk_num_bytes.to_be() // Convert from network byte order
+    };
+
+    let dest_port: u16 = unsafe {
+        // Read destination port from sockaddr structure
+        let uaddr_ptr = ctx.arg(1).unwrap_or(0 as *const u8);
+        // sockaddr_in.sin_port is at offset 2
+        let sin_port_bytes: u16 = core::ptr::read_volatile(uaddr_ptr.add(2) as *const u16);
+        sin_port_bytes.to_be() // Convert from network byte order
+    };
+
+    let dest_ip: [u8; 4] = unsafe {
+        // Read destination IP from sockaddr structure
+        let uaddr_ptr = ctx.arg(1).unwrap_or(0 as *const u8);
+        // sockaddr_in.sin_addr.s_addr is at offset 4
+        let sin_addr_bytes: u32 = core::ptr::read_volatile(uaddr_ptr.add(4) as *const u32);
+        sin_addr_bytes.to_be_bytes() // Convert to byte array
+    };
+
+    let bytes: u32 = 0; // We'll keep this as 0 for now since we don't have packet size info in tcp_connect
 
     // Get current timestamp
     let timestamp_ns = unsafe { bpf_ktime_get_ns() };

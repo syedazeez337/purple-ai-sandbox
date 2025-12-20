@@ -164,15 +164,30 @@ impl CgroupManager {
             log::info!("No process limit specified");
         }
 
-        // Apply I/O limits (cgroup2 uses different approach)
+        // Apply I/O limits using cgroup2 io.max interface
         if let Some(io_limit) = policy.block_io_limit_bytes_per_sec {
             log::info!(
                 "Setting I/O limit to {} bytes/sec ({} MB/s)",
                 io_limit,
                 io_limit / 1024 / 1024
             );
-            // For cgroup2, we would configure io.max or io.bfq.weight
-            // This is more complex and may require root privileges
+
+            // For cgroup2, use io.max to set I/O rate limits
+            // Format: "<major>:<minor> <type> <limit>"
+            // We'll apply to all devices (8:0 for typical systems)
+            let io_max_path = self.cgroup_path.join("io.max");
+            let io_max_content = format!("8:0 rbytes={} wbytes={}", io_limit, io_limit);
+
+            match fs::write(io_max_path, io_max_content) {
+                Ok(_) => log::info!("✓ I/O rate limit applied successfully"),
+                Err(e) => {
+                    log::warn!(
+                        "Failed to set I/O rate limit: {}. This may require root privileges.",
+                        e
+                    );
+                    log::warn!("I/O rate limiting will not be enforced.");
+                }
+            }
         } else {
             log::info!("No I/O limit specified");
         }
