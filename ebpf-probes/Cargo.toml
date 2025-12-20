@@ -1,0 +1,40 @@
+[package]
+name = "purple-ebpf-probes"
+version = "0.1.0"
+edition = "2021"
+authors = ["Purple AI Sandbox Team <team@purple-sandbox.io>"]
+description = "eBPF probes for Purple AI Sandbox"
+license = "Apache-2.0"
+
+# This crate is compiled separately for eBPF target, not part of the main workspace
+[workspace]
+
+[dependencies]
+aya-ebpf = "0.1.1"
+aya-log-ebpf = "0.1.0"
+
+[[bin]]
+name = "syscall"
+path = "src/syscall.bpf.rs"
+
+[[bin]]
+name = "file_access"
+path = "src/file.bpf.rs"
+
+[[bin]]
+name = "network"
+path = "src/network.bpf.rs"
+
+[profile.dev]
+opt-level = 3
+debug = false
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.release]
+opt-level = 3
+debug = false
+lto = true
+codegen-units = 1
+panic = "abort"

@@ -1,17 +1,13 @@
-[package]
-name = "purple"
-version = "0.1.0"
-edition = "2024"
-authors = ["Purple AI Sandbox Team <team@purple-sandbox.io>"]
-description = "Secure, isolated execution environment for AI agents with comprehensive sandboxing"
-homepage = "https://github.com/your-org/purple"
-repository = "https://github.com/your-org/purple"
-readme = "README.md"
-license = "Apache-2.0"
-keywords = ["sandbox", "security", "ai", "isolation", "container"]
-categories = ["security", "virtualization", "os"]
+[workspace]
+members = [
+    "purple",
+]
+# Note: ebpf-probes is NOT a workspace member - it's compiled by aya-build
+# during the purple crate's build.rs when the "ebpf" feature is enabled
+resolver = "2"
 
-[dependencies]
+[workspace.dependencies]
+# Core dependencies
 clap = { version = "4.5.53", features = ["derive"] }
 env_logger = "0.11.8"
 log = "0.4.29"
@@ -27,7 +23,7 @@ cgroups-rs = "0.3.0"
 caps = "0.5"
 libc = "0.2"
 
-# Industry-standard HTTP proxy dependencies
+# Network dependencies
 hyper = { version = "1.4.0", features = ["full"] }
 tokio = { version = "1.38.0", features = ["full"] }
 tower = { version = "0.4.13", features = ["util", "timeout", "limit"] }
@@ -39,34 +35,11 @@ regex = "1.10.5"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
-[dev-dependencies]
+# eBPF dependencies (userspace)
+aya = "0.13"
+aya-log = "0.2"
+# Note: aya-ebpf and aya-log-ebpf are used by ebpf-probes crate which is
+# compiled separately during build.rs when the "ebpf" feature is enabled
+
+# Test dependencies
 tempfile = "3.10.0"
-
-[package.metadata.docs.rs]
-features = ["all"]
-rustdoc-args = ["--cfg", "docsrs"]
-
-[package.metadata.release]
-pre-release-replacements = [
-    {file="CHANGELOG.md", search="Unreleased", replace="{{version}}", exactly=1},
-    {file="CHANGELOG.md", search="\\d{4}\\-\\d{2}\\-\\d{2}", replace="{{date}}", exactly=1},
-    {file="Cargo.toml", search="version = \"0.1.0\"", replace="version = \"{{version}}\"", exactly=1},
-]
-
-[package.metadata.publish]
-registry = "crates-io"
-
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-panic = "abort"
-strip = true
-
-[profile.dev]
-opt-level = 1
-debug = true
-
-[profile.test]
-opt-level = 2
-debug = true

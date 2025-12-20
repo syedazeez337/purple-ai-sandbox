@@ -100,3 +100,10 @@ audit:
     - "syscall"
     - "filesystem"
     - "resource"
+
+ebpf_monitoring:
+  enabled: true
+  trace_syscalls: true
+  trace_files: true
+  trace_network: true
+  correlation_enabled: true
