@@ -81,8 +81,8 @@ jobs:
         override: true
         components: rustfmt, clippy
 
-    - name: Install nightly toolchain (for eBPF)
-      run: rustup toolchain install nightly
+    - name: Install Rust toolchain
+      run: rustup show
 
     - name: Build with eBPF feature
       run: cargo build --features ebpf --verbose
@@ -91,6 +91,18 @@ jobs:
     - name: Test with eBPF feature
       run: cargo test --features ebpf --verbose
       continue-on-error: true
+
+  privileged-test:
+    name: Privileged Integration Tests
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Run privileged tests in Docker
+      run: |
+        docker run --privileged --rm -v ${{ github.workspace }}:/app -w /app rust:latest /bin/bash -c "apt-get update && apt-get install -y libseccomp-dev pkg-config && cargo test -p purple -- --ignored"
 
   coverage:
     name: Code Coverage

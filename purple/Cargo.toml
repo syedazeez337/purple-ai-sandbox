@@ -40,6 +40,7 @@ tracing-subscriber = { workspace = true }
 # eBPF dependencies (optional feature)
 aya = { version = "0.13", optional = true }
 aya-log = { version = "0.2.1", optional = true }
+sysinfo = "0.37.2"
 
 [dev-dependencies]
 tempfile = { workspace = true }

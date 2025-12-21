@@ -109,6 +109,9 @@ pub struct NetworkPolicy {
     /// Blocked IP addresses (for eBPF filter).
     #[serde(default)]
     pub blocked_ips: Vec<String>,
+    /// Custom DNS servers (e.g., ["8.8.8.8", "1.1.1.1"]).
+    #[serde(default)]
+    pub dns_servers: Option<Vec<String>>,
 }
 
 /// Defines audit logging settings.

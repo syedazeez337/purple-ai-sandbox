@@ -140,6 +140,7 @@ fn create_test_policy_with_paths(
             allow_outgoing: vec![],
             allow_incoming: vec![],
             blocked_ips: vec![],
+            dns_servers: None,
         },
         audit: AuditPolicy {
             enabled: false,
@@ -371,6 +372,7 @@ fn create_test_policy_with_resources(
             allow_outgoing: vec![],
             allow_incoming: vec![],
             blocked_ips: vec![],
+            dns_servers: None,
         },
         audit: AuditPolicy {
             enabled: false,
@@ -505,6 +507,7 @@ fn create_test_policy_with_ports(outgoing: Vec<&str>, incoming: Vec<&str>) -> Po
             allow_outgoing: outgoing.iter().map(|s| s.to_string()).collect(),
             allow_incoming: incoming.iter().map(|s| s.to_string()).collect(),
             blocked_ips: vec![],
+            dns_servers: None,
         },
         audit: AuditPolicy {
             enabled: false,
@@ -607,6 +610,7 @@ fn test_empty_syscall_list_with_default_deny_rejected() {
             allow_outgoing: vec![],
             allow_incoming: vec![],
             blocked_ips: vec![],
+            dns_servers: None,
         },
         audit: AuditPolicy {
             enabled: false,
@@ -663,6 +667,7 @@ fn test_empty_syscall_list_with_default_allow_accepted() {
             allow_outgoing: vec![],
             allow_incoming: vec![],
             blocked_ips: vec![],
+            dns_servers: None,
         },
         audit: AuditPolicy {
             enabled: false,
@@ -730,6 +735,7 @@ fn test_seccomp_deny_list_with_default_allow() {
             allow_outgoing: vec![],
             allow_incoming: vec![],
             blocked_ips: vec![],
+            dns_servers: None,
         },
         audit: AuditPolicy {
             enabled: false,
@@ -826,6 +832,7 @@ fn test_ipv6_blocked_ips_parsing() {
                 "fe80::1".to_string(),
                 "::1".to_string(),
             ],
+            dns_servers: None,
         },
         audit: AuditPolicy {
             enabled: false,
@@ -924,6 +931,7 @@ fn test_invalid_blocked_ip_fails() {
             allow_outgoing: vec![],
             allow_incoming: vec![],
             blocked_ips: vec!["not-an-ip-address".to_string()],
+            dns_servers: None,
         },
         audit: AuditPolicy {
             enabled: false,
