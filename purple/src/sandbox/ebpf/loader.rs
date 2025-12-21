@@ -348,7 +348,29 @@ impl EbpfLoader {
             blocklist.insert(ip_u32, 1, 0).map_err(|e| {
                 EbpfError::MapError(format!("Failed to insert IP into blocklist: {}", e))
             })?;
-            log::debug!("Blocked IP: {}", ip);
+            log::debug!("Blocked IPv4: {}", ip);
+        }
+        Ok(())
+    }
+
+    /// Add an IPv6 address to the blocklist
+    pub fn block_ip_v6(&mut self, ip: std::net::Ipv6Addr) -> Result<(), EbpfError> {
+        if let Some(bpf) = &mut self.network_filter_bpf {
+            let mut blocklist: AyaHashMap<_, [u8; 16], u8> = bpf
+                .map_mut("BLOCKED_IPS_V6")
+                .ok_or_else(|| EbpfError::MapError("BLOCKED_IPS_V6 map not found".to_string()))?
+                .try_into()
+                .map_err(|e| {
+                    EbpfError::MapError(format!("Failed to get IPv6 blocklist map: {}", e))
+                })?;
+
+            // Convert IPv6 to bytes in network byte order
+            let ip_bytes = ip.octets();
+
+            blocklist.insert(ip_bytes, 1, 0).map_err(|e| {
+                EbpfError::MapError(format!("Failed to insert IPv6 into blocklist: {}", e))
+            })?;
+            log::debug!("Blocked IPv6: {}", ip);
         }
         Ok(())
     }

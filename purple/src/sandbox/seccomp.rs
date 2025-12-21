@@ -34,19 +34,33 @@ pub fn apply_seccomp_filter(policy: &CompiledSyscallPolicy) -> Result<()> {
         }
     } else {
         log::info!("Seccomp: Setting default action to ALLOW");
-        log::info!("Seccomp: Denying specific syscalls if any were configured");
+        log::info!(
+            "Seccomp: Denying {} syscalls",
+            policy.denied_syscall_numbers.len()
+        );
 
-        // In allow-by-default mode, we would deny specific syscalls
-        // This is not implemented in the current policy structure
+        // In allow-by-default mode, explicitly deny specific syscalls
+        for syscall_num in &policy.denied_syscall_numbers {
+            let syscall = ScmpSyscall::from(*syscall_num as i32);
+            ctx.add_rule(ScmpAction::KillProcess, syscall)?;
+            log::debug!("Seccomp: Denied syscall {}", syscall_num);
+        }
     }
 
     // Load the filter into the kernel
     ctx.load()?;
 
-    log::info!(
-        "Syscall filtering policy enforced with {} allowed syscalls",
-        policy.allowed_syscall_numbers.len()
-    );
+    if policy.default_deny {
+        log::info!(
+            "Syscall filtering policy enforced with {} allowed syscalls",
+            policy.allowed_syscall_numbers.len()
+        );
+    } else {
+        log::info!(
+            "Syscall filtering policy enforced with {} denied syscalls",
+            policy.denied_syscall_numbers.len()
+        );
+    }
 
     Ok(())
 }

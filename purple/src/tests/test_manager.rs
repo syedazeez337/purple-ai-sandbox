@@ -22,6 +22,7 @@ fn create_test_policy(name: &str) -> CompiledPolicy {
         syscalls: CompiledSyscallPolicy {
             default_deny: false,
             allowed_syscall_numbers: BTreeSet::new(),
+            denied_syscall_numbers: BTreeSet::new(),
         },
         resources: CompiledResourcePolicy {
             cpu_shares: Some(1.0),                 // 1.0 CPU
@@ -39,7 +40,8 @@ fn create_test_policy(name: &str) -> CompiledPolicy {
             isolated: true,
             allowed_outgoing_ports: HashSet::new(),
             allowed_incoming_ports: HashSet::new(),
-            blocked_ips: HashSet::new(),
+            blocked_ips_v4: HashSet::new(),
+            blocked_ips_v6: HashSet::new(),
         },
         audit: CompiledAuditPolicy {
             enabled: false,

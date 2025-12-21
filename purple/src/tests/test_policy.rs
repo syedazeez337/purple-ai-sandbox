@@ -679,3 +679,302 @@ fn test_empty_syscall_list_with_default_allow_accepted() {
         "Empty syscall list with default_deny=false should be accepted"
     );
 }
+
+// ========================================
+// P0 Critical Fix Tests
+// ========================================
+
+/// Test: Seccomp deny list with default_deny=false
+/// Verifies that syscalls in the deny list are compiled into denied_syscall_numbers
+#[test]
+fn test_seccomp_deny_list_with_default_allow() {
+    use crate::policy::{
+        AuditPolicy, CapabilityPolicy, FilesystemPolicy, NetworkPolicy, Policy, ResourcePolicy,
+        SyscallPolicy,
+    };
+
+    let policy = Policy {
+        name: "test-deny-list".to_string(),
+        description: Some("Test seccomp deny list".to_string()),
+        filesystem: FilesystemPolicy {
+            immutable_paths: vec![],
+            scratch_paths: vec![],
+            output_paths: vec![],
+            working_dir: PathBuf::from("/tmp"),
+        },
+        syscalls: SyscallPolicy {
+            default_deny: false, // Allow by default
+            allow: vec![],       // No explicit allows needed
+            deny: vec![
+                // These should be compiled into denied_syscall_numbers
+                "mount".to_string(),
+                "umount2".to_string(),
+                "reboot".to_string(),
+                "ptrace".to_string(),
+            ],
+        },
+        resources: ResourcePolicy {
+            cpu_shares: None,
+            memory_limit_bytes: None,
+            pids_limit: None,
+            block_io_limit: None,
+            session_timeout_seconds: None,
+        },
+        capabilities: CapabilityPolicy {
+            default_drop: true,
+            add: vec![],
+            drop: vec![],
+        },
+        network: NetworkPolicy {
+            isolated: true,
+            allow_outgoing: vec![],
+            allow_incoming: vec![],
+            blocked_ips: vec![],
+        },
+        audit: AuditPolicy {
+            enabled: false,
+            log_path: PathBuf::from("/tmp/audit.log"),
+            detail_level: vec![],
+        },
+        ai_policy: None,
+        ebpf_monitoring: crate::policy::EbpfMonitoringPolicy::default(),
+    };
+
+    let compiled = policy.compile().expect("Policy should compile");
+
+    // Verify default_deny is false
+    assert!(!compiled.syscalls.default_deny);
+
+    // Verify allowed_syscall_numbers is empty (we didn't specify any)
+    assert!(
+        compiled.syscalls.allowed_syscall_numbers.is_empty(),
+        "No explicit allows, so allowed_syscall_numbers should be empty"
+    );
+
+    // Verify denied_syscall_numbers contains the denied syscalls
+    assert_eq!(
+        compiled.syscalls.denied_syscall_numbers.len(),
+        4,
+        "Should have 4 denied syscalls"
+    );
+
+    // Verify specific syscall numbers are in the denied set
+    // mount = 165, umount2 = 166, reboot = 169, ptrace = 101
+    assert!(
+        compiled.syscalls.denied_syscall_numbers.contains(&165),
+        "mount (165) should be denied"
+    );
+    assert!(
+        compiled.syscalls.denied_syscall_numbers.contains(&166),
+        "umount2 (166) should be denied"
+    );
+    assert!(
+        compiled.syscalls.denied_syscall_numbers.contains(&169),
+        "reboot (169) should be denied"
+    );
+    assert!(
+        compiled.syscalls.denied_syscall_numbers.contains(&101),
+        "ptrace (101) should be denied"
+    );
+}
+
+/// Test: IPv6 address parsing in blocked_ips
+/// Verifies that IPv6 addresses are correctly parsed and stored separately from IPv4
+#[test]
+fn test_ipv6_blocked_ips_parsing() {
+    use crate::policy::{
+        AuditPolicy, CapabilityPolicy, FilesystemPolicy, NetworkPolicy, Policy, ResourcePolicy,
+        SyscallPolicy,
+    };
+
+    let policy = Policy {
+        name: "test-ipv6-blocking".to_string(),
+        description: Some("Test IPv6 blocked IPs".to_string()),
+        filesystem: FilesystemPolicy {
+            immutable_paths: vec![],
+            scratch_paths: vec![],
+            output_paths: vec![],
+            working_dir: PathBuf::from("/tmp"),
+        },
+        syscalls: SyscallPolicy {
+            default_deny: false,
+            allow: vec!["exit_group".to_string()],
+            deny: vec![],
+        },
+        resources: ResourcePolicy {
+            cpu_shares: None,
+            memory_limit_bytes: None,
+            pids_limit: None,
+            block_io_limit: None,
+            session_timeout_seconds: None,
+        },
+        capabilities: CapabilityPolicy {
+            default_drop: true,
+            add: vec![],
+            drop: vec![],
+        },
+        network: NetworkPolicy {
+            isolated: false,
+            allow_outgoing: vec![],
+            allow_incoming: vec![],
+            blocked_ips: vec![
+                // IPv4 addresses
+                "192.168.1.1".to_string(),
+                "10.0.0.1".to_string(),
+                // IPv6 addresses
+                "2001:db8::1".to_string(),
+                "fe80::1".to_string(),
+                "::1".to_string(),
+            ],
+        },
+        audit: AuditPolicy {
+            enabled: false,
+            log_path: PathBuf::from("/tmp/audit.log"),
+            detail_level: vec![],
+        },
+        ai_policy: None,
+        ebpf_monitoring: crate::policy::EbpfMonitoringPolicy::default(),
+    };
+
+    let compiled = policy
+        .compile()
+        .expect("Policy should compile with IPv6 addresses");
+
+    // Verify IPv4 addresses are in blocked_ips_v4
+    assert_eq!(
+        compiled.network.blocked_ips_v4.len(),
+        2,
+        "Should have 2 IPv4 blocked addresses"
+    );
+    assert!(
+        compiled
+            .network
+            .blocked_ips_v4
+            .contains(&"192.168.1.1".parse().unwrap())
+    );
+    assert!(
+        compiled
+            .network
+            .blocked_ips_v4
+            .contains(&"10.0.0.1".parse().unwrap())
+    );
+
+    // Verify IPv6 addresses are in blocked_ips_v6
+    assert_eq!(
+        compiled.network.blocked_ips_v6.len(),
+        3,
+        "Should have 3 IPv6 blocked addresses"
+    );
+    assert!(
+        compiled
+            .network
+            .blocked_ips_v6
+            .contains(&"2001:db8::1".parse().unwrap())
+    );
+    assert!(
+        compiled
+            .network
+            .blocked_ips_v6
+            .contains(&"fe80::1".parse().unwrap())
+    );
+    assert!(
+        compiled
+            .network
+            .blocked_ips_v6
+            .contains(&"::1".parse().unwrap())
+    );
+}
+
+/// Test: Invalid IP address in blocked_ips should fail
+#[test]
+fn test_invalid_blocked_ip_fails() {
+    use crate::policy::{
+        AuditPolicy, CapabilityPolicy, FilesystemPolicy, NetworkPolicy, Policy, ResourcePolicy,
+        SyscallPolicy,
+    };
+
+    let policy = Policy {
+        name: "test-invalid-ip".to_string(),
+        description: None,
+        filesystem: FilesystemPolicy {
+            immutable_paths: vec![],
+            scratch_paths: vec![],
+            output_paths: vec![],
+            working_dir: PathBuf::from("/tmp"),
+        },
+        syscalls: SyscallPolicy {
+            default_deny: false,
+            allow: vec!["exit_group".to_string()],
+            deny: vec![],
+        },
+        resources: ResourcePolicy {
+            cpu_shares: None,
+            memory_limit_bytes: None,
+            pids_limit: None,
+            block_io_limit: None,
+            session_timeout_seconds: None,
+        },
+        capabilities: CapabilityPolicy {
+            default_drop: true,
+            add: vec![],
+            drop: vec![],
+        },
+        network: NetworkPolicy {
+            isolated: false,
+            allow_outgoing: vec![],
+            allow_incoming: vec![],
+            blocked_ips: vec!["not-an-ip-address".to_string()],
+        },
+        audit: AuditPolicy {
+            enabled: false,
+            log_path: PathBuf::from("/tmp/audit.log"),
+            detail_level: vec![],
+        },
+        ai_policy: None,
+        ebpf_monitoring: crate::policy::EbpfMonitoringPolicy::default(),
+    };
+
+    let result = policy.compile();
+    assert!(result.is_err(), "Invalid IP should fail compilation");
+    assert!(
+        result.unwrap_err().contains("not a valid IPv4 or IPv6"),
+        "Error should mention invalid IP format"
+    );
+}
+
+/// Test: Load and compile p0-test-policy.yaml
+#[test]
+fn test_p0_test_policy_loads_and_compiles() {
+    let policy_path = get_policy_path("p0-test-policy");
+
+    // Skip if policy doesn't exist (it's created during manual testing)
+    if !policy_path.exists() {
+        println!("Skipping test: p0-test-policy.yaml not found");
+        return;
+    }
+
+    let policy = load_policy_from_file(&policy_path).expect("Should load p0-test-policy");
+    assert_eq!(policy.name, "p0-test-policy");
+
+    let compiled = policy.compile().expect("Should compile p0-test-policy");
+
+    // Verify seccomp deny list
+    assert!(!compiled.syscalls.default_deny);
+    assert_eq!(
+        compiled.syscalls.denied_syscall_numbers.len(),
+        7,
+        "Should have 7 denied syscalls"
+    );
+
+    // Verify IPv6 blocked IPs
+    assert_eq!(
+        compiled.network.blocked_ips_v4.len(),
+        2,
+        "Should have 2 IPv4 blocked IPs"
+    );
+    assert_eq!(
+        compiled.network.blocked_ips_v6.len(),
+        3,
+        "Should have 3 IPv6 blocked IPs"
+    );
+}

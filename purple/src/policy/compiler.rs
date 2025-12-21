@@ -301,6 +301,8 @@ pub struct CompiledFilesystemPolicy {
 pub struct CompiledSyscallPolicy {
     pub default_deny: bool,
     pub allowed_syscall_numbers: BTreeSet<i64>,
+    /// Syscalls to explicitly deny when default_deny=false (allow-by-default mode)
+    pub denied_syscall_numbers: BTreeSet<i64>,
 }
 
 /// Compiled resource limits.
@@ -338,8 +340,12 @@ pub struct CompiledNetworkPolicy {
     pub isolated: bool,
     pub allowed_outgoing_ports: HashSet<u16>, // e.g., 443, 53
     pub allowed_incoming_ports: HashSet<u16>,
+    /// Blocked IPv4 addresses for eBPF network filter
     #[allow(dead_code)]
-    pub blocked_ips: HashSet<std::net::Ipv4Addr>,
+    pub blocked_ips_v4: HashSet<std::net::Ipv4Addr>,
+    /// Blocked IPv6 addresses for eBPF network filter
+    #[allow(dead_code)]
+    pub blocked_ips_v6: HashSet<std::net::Ipv6Addr>,
 }
 
 /// Compiled audit rules.
@@ -405,6 +411,8 @@ impl Policy {
 
         // --- Syscall Compilation ---
         let mut allowed_syscall_numbers = BTreeSet::new();
+        let mut denied_syscall_numbers = BTreeSet::new();
+
         for sname in &self.syscalls.allow {
             if let Some(num) = crate::sandbox::seccomp::get_syscall_number(sname) {
                 allowed_syscall_numbers.insert(num);
@@ -412,12 +420,19 @@ impl Policy {
                 return Err(format!("Unknown syscall: {}", sname));
             }
         }
-        // Deny overrides allow - removes syscalls from allowed list.
-        // This is useful for explicitly blocking dangerous syscalls even if
-        // they were included in the allow list, or for documentation purposes.
+
+        // Process deny list based on mode:
+        // - default_deny=true: deny list removes syscalls from allowed list
+        // - default_deny=false: deny list explicitly blocks specific syscalls
         for sname in &self.syscalls.deny {
             if let Some(num) = crate::sandbox::seccomp::get_syscall_number(sname) {
-                allowed_syscall_numbers.remove(&num);
+                if self.syscalls.default_deny {
+                    // In deny-by-default mode, remove from allowed list
+                    allowed_syscall_numbers.remove(&num);
+                } else {
+                    // In allow-by-default mode, add to denied list
+                    denied_syscall_numbers.insert(num);
+                }
             } else {
                 return Err(format!("Unknown syscall to deny: {}", sname));
             }
@@ -426,6 +441,7 @@ impl Policy {
         let compiled_syscalls = CompiledSyscallPolicy {
             default_deny: self.syscalls.default_deny,
             allowed_syscall_numbers,
+            denied_syscall_numbers,
         };
 
         // Validate syscall policy - empty allow list with default_deny makes sandbox unusable
@@ -487,19 +503,28 @@ impl Policy {
             allowed_incoming_ports.insert(port);
         }
 
-        let mut blocked_ips = HashSet::new();
+        let mut blocked_ips_v4 = HashSet::new();
+        let mut blocked_ips_v6 = HashSet::new();
         for (idx, ip_str) in self.network.blocked_ips.iter().enumerate() {
-            let ip: std::net::Ipv4Addr = ip_str
-                .parse()
-                .map_err(|e| format!("Invalid blocked_ips[{}] '{}': {}", idx, ip_str, e))?;
-            blocked_ips.insert(ip);
+            // Try parsing as IPv4 first, then IPv6
+            if let Ok(ip) = ip_str.parse::<std::net::Ipv4Addr>() {
+                blocked_ips_v4.insert(ip);
+            } else if let Ok(ip) = ip_str.parse::<std::net::Ipv6Addr>() {
+                blocked_ips_v6.insert(ip);
+            } else {
+                return Err(format!(
+                    "Invalid blocked_ips[{}] '{}': not a valid IPv4 or IPv6 address",
+                    idx, ip_str
+                ));
+            }
         }
 
         let compiled_network = CompiledNetworkPolicy {
             isolated: self.network.isolated,
             allowed_outgoing_ports,
             allowed_incoming_ports,
-            blocked_ips,
+            blocked_ips_v4,
+            blocked_ips_v6,
         };
 
         // --- Audit Compilation ---

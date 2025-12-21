@@ -8,12 +8,26 @@ use aya_ebpf::{
     programs::ProbeContext,
 };
 
+/// IP address type indicator
+#[repr(u8)]
+pub enum IpVersion {
+    V4 = 4,
+    V6 = 6,
+}
+
 #[repr(C)]
 pub struct NetworkEvent {
     pub pid: u32,
     pub source_port: u16,
-    pub dest_ip: [u8; 4], // IPv4 address
     pub dest_port: u16,
+    /// IP version: 4 for IPv4, 6 for IPv6
+    pub ip_version: u8,
+    /// Padding to maintain alignment
+    pub _padding: [u8; 3],
+    /// IPv4 address (only first 4 bytes used for IPv4)
+    pub dest_ip_v4: [u8; 4],
+    /// IPv6 address (full 16 bytes for IPv6)
+    pub dest_ip_v6: [u8; 16],
     pub bytes: u32,
     pub timestamp_ns: u64,
 }
@@ -60,20 +74,58 @@ fn try_network_connect(ctx: &ProbeContext) -> Result<u32, i64> {
         sk_num_bytes.to_be() // Convert from network byte order
     };
 
-    let dest_port: u16 = unsafe {
-        // Read destination port from sockaddr structure
+    // Read address family from sockaddr structure to determine IPv4 vs IPv6
+    // sockaddr.sa_family is at offset 0 (2 bytes)
+    let sa_family: u16 = unsafe {
         let uaddr_ptr = ctx.arg(1).unwrap_or(0 as *const u8);
-        // sockaddr_in.sin_port is at offset 2
-        let sin_port_bytes: u16 = core::ptr::read_volatile(uaddr_ptr.add(2) as *const u16);
-        sin_port_bytes.to_be() // Convert from network byte order
+        core::ptr::read_volatile(uaddr_ptr as *const u16)
     };
 
-    let dest_ip: [u8; 4] = unsafe {
-        // Read destination IP from sockaddr structure
-        let uaddr_ptr = ctx.arg(1).unwrap_or(0 as *const u8);
-        // sockaddr_in.sin_addr.s_addr is at offset 4
-        let sin_addr_bytes: u32 = core::ptr::read_volatile(uaddr_ptr.add(4) as *const u32);
-        sin_addr_bytes.to_be_bytes() // Convert to byte array
+    // AF_INET = 2 (IPv4), AF_INET6 = 10 (IPv6)
+    let (ip_version, dest_ip_v4, dest_ip_v6, dest_port) = match sa_family {
+        2 => {
+            // AF_INET (IPv4)
+            let dest_port: u16 = unsafe {
+                let uaddr_ptr = ctx.arg(1).unwrap_or(0 as *const u8);
+                // sockaddr_in.sin_port is at offset 2
+                let sin_port_bytes: u16 = core::ptr::read_volatile(uaddr_ptr.add(2) as *const u16);
+                sin_port_bytes.to_be()
+            };
+
+            let dest_ip: [u8; 4] = unsafe {
+                let uaddr_ptr = ctx.arg(1).unwrap_or(0 as *const u8);
+                // sockaddr_in.sin_addr.s_addr is at offset 4
+                let sin_addr_bytes: u32 = core::ptr::read_volatile(uaddr_ptr.add(4) as *const u32);
+                sin_addr_bytes.to_be_bytes()
+            };
+
+            (IpVersion::V4 as u8, dest_ip, [0u8; 16], dest_port)
+        }
+        10 => {
+            // AF_INET6 (IPv6)
+            let dest_port: u16 = unsafe {
+                let uaddr_ptr = ctx.arg(1).unwrap_or(0 as *const u8);
+                // sockaddr_in6.sin6_port is at offset 2
+                let sin6_port_bytes: u16 = core::ptr::read_volatile(uaddr_ptr.add(2) as *const u16);
+                sin6_port_bytes.to_be()
+            };
+
+            // sockaddr_in6.sin6_addr is at offset 8 (16 bytes)
+            let mut dest_ip_v6: [u8; 16] = [0u8; 16];
+            unsafe {
+                let uaddr_ptr = ctx.arg(1).unwrap_or(0 as *const u8);
+                // Read 16 bytes of IPv6 address
+                for i in 0..16 {
+                    dest_ip_v6[i] = core::ptr::read_volatile(uaddr_ptr.add(8 + i) as *const u8);
+                }
+            }
+
+            (IpVersion::V6 as u8, [0u8; 4], dest_ip_v6, dest_port)
+        }
+        _ => {
+            // Unknown address family, skip
+            return Ok(0);
+        }
     };
 
     let bytes: u32 = 0; // We'll keep this as 0 for now since we don't have packet size info in tcp_connect
@@ -85,8 +137,11 @@ fn try_network_connect(ctx: &ProbeContext) -> Result<u32, i64> {
     let event = NetworkEvent {
         pid,
         source_port,
-        dest_ip,
         dest_port,
+        ip_version,
+        _padding: [0u8; 3],
+        dest_ip_v4,
+        dest_ip_v6,
         bytes,
         timestamp_ns,
     };
