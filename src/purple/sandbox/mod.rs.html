@@ -2163,35 +2163,50 @@
 <a href=#2163 id=2163 data-nosnippet>2163</a>            } <span class="kw">else </span>{
 <a href=#2164 id=2164 data-nosnippet>2164</a>                <span class="macro">log::info!</span>(<span class="string">"✓ Network filter attached to sandbox cgroup"</span>);
 <a href=#2165 id=2165 data-nosnippet>2165</a>
-<a href=#2166 id=2166 data-nosnippet>2166</a>                <span class="comment">// Populate IP blocklist
-<a href=#2167 id=2167 data-nosnippet>2167</a>                </span><span class="kw">if </span>!<span class="self">self</span>.policy.network.blocked_ips.is_empty() {
+<a href=#2166 id=2166 data-nosnippet>2166</a>                <span class="comment">// Populate IPv4 blocklist
+<a href=#2167 id=2167 data-nosnippet>2167</a>                </span><span class="kw">if </span>!<span class="self">self</span>.policy.network.blocked_ips_v4.is_empty() {
 <a href=#2168 id=2168 data-nosnippet>2168</a>                    <span class="macro">log::info!</span>(
-<a href=#2169 id=2169 data-nosnippet>2169</a>                        <span class="string">"Applying {} IP block rules..."</span>,
-<a href=#2170 id=2170 data-nosnippet>2170</a>                        <span class="self">self</span>.policy.network.blocked_ips.len()
+<a href=#2169 id=2169 data-nosnippet>2169</a>                        <span class="string">"Applying {} IPv4 block rules..."</span>,
+<a href=#2170 id=2170 data-nosnippet>2170</a>                        <span class="self">self</span>.policy.network.blocked_ips_v4.len()
 <a href=#2171 id=2171 data-nosnippet>2171</a>                    );
-<a href=#2172 id=2172 data-nosnippet>2172</a>                    <span class="kw">for </span>ip <span class="kw">in </span><span class="kw-2">&amp;</span><span class="self">self</span>.policy.network.blocked_ips {
+<a href=#2172 id=2172 data-nosnippet>2172</a>                    <span class="kw">for </span>ip <span class="kw">in </span><span class="kw-2">&amp;</span><span class="self">self</span>.policy.network.blocked_ips_v4 {
 <a href=#2173 id=2173 data-nosnippet>2173</a>                        <span class="kw">if let </span><span class="prelude-val">Err</span>(e) = loader.block_ip(<span class="kw-2">*</span>ip) {
-<a href=#2174 id=2174 data-nosnippet>2174</a>                            <span class="macro">log::warn!</span>(<span class="string">"Failed to block IP {}: {}"</span>, ip, e);
+<a href=#2174 id=2174 data-nosnippet>2174</a>                            <span class="macro">log::warn!</span>(<span class="string">"Failed to block IPv4 {}: {}"</span>, ip, e);
 <a href=#2175 id=2175 data-nosnippet>2175</a>                        } <span class="kw">else </span>{
-<a href=#2176 id=2176 data-nosnippet>2176</a>                            <span class="macro">log::debug!</span>(<span class="string">"Blocked IP: {}"</span>, ip);
+<a href=#2176 id=2176 data-nosnippet>2176</a>                            <span class="macro">log::debug!</span>(<span class="string">"Blocked IPv4: {}"</span>, ip);
 <a href=#2177 id=2177 data-nosnippet>2177</a>                        }
 <a href=#2178 id=2178 data-nosnippet>2178</a>                    }
 <a href=#2179 id=2179 data-nosnippet>2179</a>                }
-<a href=#2180 id=2180 data-nosnippet>2180</a>            }
-<a href=#2181 id=2181 data-nosnippet>2181</a>        }
-<a href=#2182 id=2182 data-nosnippet>2182</a>        <span class="prelude-val">Ok</span>(())
-<a href=#2183 id=2183 data-nosnippet>2183</a>    }
-<a href=#2184 id=2184 data-nosnippet>2184</a>
-<a href=#2185 id=2185 data-nosnippet>2185</a>    <span class="doccomment">/// Generate correlation report
-<a href=#2186 id=2186 data-nosnippet>2186</a>    </span><span class="attr">#[cfg(feature = <span class="string">"ebpf"</span>)]
-<a href=#2187 id=2187 data-nosnippet>2187</a>    #[allow(dead_code)] </span><span class="comment">// TODO: Implement correlation report generation
-<a href=#2188 id=2188 data-nosnippet>2188</a>    </span><span class="kw">pub fn </span>generate_correlation_report(
-<a href=#2189 id=2189 data-nosnippet>2189</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#2190 id=2190 data-nosnippet>2190</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;<span class="kw">crate</span>::sandbox::ebpf::correlator::CorrelationResult&gt;&gt; {
-<a href=#2191 id=2191 data-nosnippet>2191</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(correlator) = <span class="kw-2">&amp;</span><span class="self">self</span>.correlator {
-<a href=#2192 id=2192 data-nosnippet>2192</a>            <span class="prelude-val">Ok</span>(correlator.correlate())
-<a href=#2193 id=2193 data-nosnippet>2193</a>        } <span class="kw">else </span>{
-<a href=#2194 id=2194 data-nosnippet>2194</a>            <span class="prelude-val">Ok</span>(Vec::new())
-<a href=#2195 id=2195 data-nosnippet>2195</a>        }
-<a href=#2196 id=2196 data-nosnippet>2196</a>    }
-<a href=#2197 id=2197 data-nosnippet>2197</a>}</code></pre></div></section></main></body></html>
+<a href=#2180 id=2180 data-nosnippet>2180</a>
+<a href=#2181 id=2181 data-nosnippet>2181</a>                <span class="comment">// Populate IPv6 blocklist
+<a href=#2182 id=2182 data-nosnippet>2182</a>                </span><span class="kw">if </span>!<span class="self">self</span>.policy.network.blocked_ips_v6.is_empty() {
+<a href=#2183 id=2183 data-nosnippet>2183</a>                    <span class="macro">log::info!</span>(
+<a href=#2184 id=2184 data-nosnippet>2184</a>                        <span class="string">"Applying {} IPv6 block rules..."</span>,
+<a href=#2185 id=2185 data-nosnippet>2185</a>                        <span class="self">self</span>.policy.network.blocked_ips_v6.len()
+<a href=#2186 id=2186 data-nosnippet>2186</a>                    );
+<a href=#2187 id=2187 data-nosnippet>2187</a>                    <span class="kw">for </span>ip <span class="kw">in </span><span class="kw-2">&amp;</span><span class="self">self</span>.policy.network.blocked_ips_v6 {
+<a href=#2188 id=2188 data-nosnippet>2188</a>                        <span class="kw">if let </span><span class="prelude-val">Err</span>(e) = loader.block_ip_v6(<span class="kw-2">*</span>ip) {
+<a href=#2189 id=2189 data-nosnippet>2189</a>                            <span class="macro">log::warn!</span>(<span class="string">"Failed to block IPv6 {}: {}"</span>, ip, e);
+<a href=#2190 id=2190 data-nosnippet>2190</a>                        } <span class="kw">else </span>{
+<a href=#2191 id=2191 data-nosnippet>2191</a>                            <span class="macro">log::debug!</span>(<span class="string">"Blocked IPv6: {}"</span>, ip);
+<a href=#2192 id=2192 data-nosnippet>2192</a>                        }
+<a href=#2193 id=2193 data-nosnippet>2193</a>                    }
+<a href=#2194 id=2194 data-nosnippet>2194</a>                }
+<a href=#2195 id=2195 data-nosnippet>2195</a>            }
+<a href=#2196 id=2196 data-nosnippet>2196</a>        }
+<a href=#2197 id=2197 data-nosnippet>2197</a>        <span class="prelude-val">Ok</span>(())
+<a href=#2198 id=2198 data-nosnippet>2198</a>    }
+<a href=#2199 id=2199 data-nosnippet>2199</a>
+<a href=#2200 id=2200 data-nosnippet>2200</a>    <span class="doccomment">/// Generate correlation report
+<a href=#2201 id=2201 data-nosnippet>2201</a>    </span><span class="attr">#[cfg(feature = <span class="string">"ebpf"</span>)]
+<a href=#2202 id=2202 data-nosnippet>2202</a>    #[allow(dead_code)] </span><span class="comment">// TODO: Implement correlation report generation
+<a href=#2203 id=2203 data-nosnippet>2203</a>    </span><span class="kw">pub fn </span>generate_correlation_report(
+<a href=#2204 id=2204 data-nosnippet>2204</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
+<a href=#2205 id=2205 data-nosnippet>2205</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;<span class="kw">crate</span>::sandbox::ebpf::correlator::CorrelationResult&gt;&gt; {
+<a href=#2206 id=2206 data-nosnippet>2206</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(correlator) = <span class="kw-2">&amp;</span><span class="self">self</span>.correlator {
+<a href=#2207 id=2207 data-nosnippet>2207</a>            <span class="prelude-val">Ok</span>(correlator.correlate())
+<a href=#2208 id=2208 data-nosnippet>2208</a>        } <span class="kw">else </span>{
+<a href=#2209 id=2209 data-nosnippet>2209</a>            <span class="prelude-val">Ok</span>(Vec::new())
+<a href=#2210 id=2210 data-nosnippet>2210</a>        }
+<a href=#2211 id=2211 data-nosnippet>2211</a>    }
+<a href=#2212 id=2212 data-nosnippet>2212</a>}</code></pre></div></section></main></body></html>
