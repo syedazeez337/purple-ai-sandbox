@@ -346,6 +346,8 @@ pub struct CompiledNetworkPolicy {
     /// Blocked IPv6 addresses for eBPF network filter
     #[allow(dead_code)]
     pub blocked_ips_v6: HashSet<std::net::Ipv6Addr>,
+    /// Custom DNS servers
+    pub dns_servers: Option<Vec<String>>,
 }
 
 /// Compiled audit rules.
@@ -525,6 +527,7 @@ impl Policy {
             allowed_incoming_ports,
             blocked_ips_v4,
             blocked_ips_v6,
+            dns_servers: self.network.dns_servers.clone(),
         };
 
         // --- Audit Compilation ---

@@ -21,12 +21,10 @@ fn main() {
         println!("cargo:warning=eBPF output directory: {:?}", target_dir);
 
         // Build each eBPF binary
+        let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
         for bin_name in &["syscall", "file_access", "network", "network_filter"] {
-            let status = Command::new("rustup")
+            let status = Command::new(&cargo)
                 .args([
-                    "run",
-                    "nightly",
-                    "cargo",
                     "build",
                     "--manifest-path",
                     ebpf_manifest.to_str().unwrap(),

@@ -23,7 +23,13 @@ pub fn unshare_user_namespace() -> Result<(Uid, Gid), String> {
 
     // Unshare user namespace
     unshare(CloneFlags::CLONE_NEWUSER)
-        .map_err(|e| format!("Failed to unshare user namespace: {}", e))?;
+        .map_err(|e| {
+            if e == nix::errno::Errno::EINVAL {
+                format!("Failed to unshare user namespace: {}. This can happen if user namespaces are disabled, the process is multi-threaded, or you are already in a restricted nested namespace environment.", e)
+            } else {
+                format!("Failed to unshare user namespace: {}", e)
+            }
+        })?;
     log::info!("User namespace unshared.");
 
     // Write "deny" to setgroups FIRST.

@@ -7,6 +7,7 @@ use crate::policy::compiler::CompiledPolicy;
 use crate::sandbox::Sandbox;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use sysinfo::System;
 use uuid::Uuid;
 
 /// Manages multiple concurrent sandbox instances
@@ -56,10 +57,21 @@ pub struct ResourcePool {
 impl ResourcePool {
     /// Creates a new resource pool with system resources
     pub fn new() -> Self {
-        // In a real implementation, this would detect system resources
+        let mut sys = System::new_all();
+        sys.refresh_all();
+
+        let total_cpu = sys.cpus().len() as f64;
+        let total_memory = sys.total_memory() / 1024 / 1024; // Convert to MB
+
+        log::info!(
+            "Detected system resources: {} CPUs, {}MB RAM",
+            total_cpu,
+            total_memory
+        );
+
         ResourcePool {
-            total_cpu_cores: 4.0,  // Default to 4 cores
-            total_memory_mb: 8192, // Default to 8GB
+            total_cpu_cores: total_cpu,
+            total_memory_mb: total_memory,
             allocated_cpu: 0.0,
             allocated_memory: 0,
         }

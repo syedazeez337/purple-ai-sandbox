@@ -50,6 +50,7 @@ fn create_test_policy(name: &str) -> CompiledPolicy {
             allowed_incoming_ports: HashSet::new(),
             blocked_ips_v4: HashSet::new(),
             blocked_ips_v6: HashSet::new(),
+            dns_servers: None,
         },
         audit: CompiledAuditPolicy {
             enabled: false,
