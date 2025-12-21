@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["capability_from_name","prctl_set_no_new_privs"],"mod":["cgroups","linux_namespaces","manager","seccomp"],"struct":["Sandbox"]};
+window.SIDEBAR_ITEMS = {"mod":["capabilities","cgroups","filesystem","linux_namespaces","manager","network","seccomp"],"struct":["Sandbox"]};

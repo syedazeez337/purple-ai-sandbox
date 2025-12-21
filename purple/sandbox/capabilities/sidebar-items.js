@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["actual_drop_capabilities","add_specific_capabilities","capability_from_name","drop_capabilities","drop_capabilities_system_call","drop_specific_capabilities","prctl_set_no_new_privs","verify_capabilities"]};
