@@ -59,10 +59,13 @@ Instead, please report them to our security team at:
 ### Isolation Mechanisms
 
 - **Linux Namespaces**: User, PID, mount, and network isolation
-- **Seccomp Filtering**: Syscall restriction with default-deny policies
+- **Seccomp Filtering**: Syscall restriction with default-deny or explicit-deny policies
+  - Default-deny mode: Blocks all syscalls except those explicitly allowed
+  - Deny-list mode: Allows all syscalls except those explicitly blocked
 - **Capability Dropping**: Principle of least privilege enforcement
 - **Filesystem Isolation**: Read-only mounts and chroot
 - **Network Isolation**: Complete network namespace separation
+- **eBPF Network Filtering**: IPv4 and IPv6 address blocking via eBPF
 
 ### Monitoring & Auditing
 
@@ -77,6 +80,35 @@ Instead, please report them to our security team at:
 - **Process Limits**: Limit process creation
 - **I/O Throttling**: Prevent disk I/O abuse
 - **Timeout Enforcement**: Automatic session termination
+
+## Dependency Security Audit (RUSTSEC)
+
+This project uses `cargo-audit` to scan dependencies for known RUSTSEC vulnerabilities.
+
+### Last Audit: 2025-12-21
+
+**Status**: No known vulnerabilities detected
+
+```
+Scanning Cargo.lock for vulnerabilities (158 crate dependencies)
+Result: 0 vulnerabilities found
+```
+
+### Running Security Audits
+
+To check for vulnerabilities locally:
+
+```bash
+# Install cargo-audit
+cargo install cargo-audit
+
+# Run audit
+cargo audit
+```
+
+### Continuous Integration
+
+Security audits should be automatically run in CI. See `.github/workflows/rust.yml`.
 
 ## Security Updates
 

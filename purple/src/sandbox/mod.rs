@@ -2163,17 +2163,32 @@ impl Sandbox {
             } else {
                 log::info!("✓ Network filter attached to sandbox cgroup");
 
-                // Populate IP blocklist
-                if !self.policy.network.blocked_ips.is_empty() {
+                // Populate IPv4 blocklist
+                if !self.policy.network.blocked_ips_v4.is_empty() {
                     log::info!(
-                        "Applying {} IP block rules...",
-                        self.policy.network.blocked_ips.len()
+                        "Applying {} IPv4 block rules...",
+                        self.policy.network.blocked_ips_v4.len()
                     );
-                    for ip in &self.policy.network.blocked_ips {
+                    for ip in &self.policy.network.blocked_ips_v4 {
                         if let Err(e) = loader.block_ip(*ip) {
-                            log::warn!("Failed to block IP {}: {}", ip, e);
+                            log::warn!("Failed to block IPv4 {}: {}", ip, e);
                         } else {
-                            log::debug!("Blocked IP: {}", ip);
+                            log::debug!("Blocked IPv4: {}", ip);
+                        }
+                    }
+                }
+
+                // Populate IPv6 blocklist
+                if !self.policy.network.blocked_ips_v6.is_empty() {
+                    log::info!(
+                        "Applying {} IPv6 block rules...",
+                        self.policy.network.blocked_ips_v6.len()
+                    );
+                    for ip in &self.policy.network.blocked_ips_v6 {
+                        if let Err(e) = loader.block_ip_v6(*ip) {
+                            log::warn!("Failed to block IPv6 {}: {}", ip, e);
+                        } else {
+                            log::debug!("Blocked IPv6: {}", ip);
                         }
                     }
                 }
