@@ -1,0 +1,44 @@
+name: "cicd-worker"
+description: "Scenario 3: Build worker. Balanced profile, access to build tools."
+
+filesystem:
+  immutable_paths:
+    - host_path: "/usr"
+      sandbox_path: "/usr"
+    - host_path: "/lib64"
+      sandbox_path: "/lib64"
+    - host_path: "/bin"
+      sandbox_path: "/bin"
+  scratch_paths:
+    - "/tmp"
+    - "/var/tmp"
+  output_paths:
+    - host_path: "/tmp/purple/output/cicd-worker"
+      sandbox_path: "/build"
+  working_dir: "/tmp"
+
+syscalls:
+  default_deny: false
+  allow: []
+  deny: []
+
+resources:
+  cpu_shares: 0.8
+  memory_limit_bytes: "2G"
+  pids_limit: 200
+  session_timeout_seconds: 1200
+
+capabilities:
+  default_drop: true
+  add: []
+
+network:
+  isolated: false
+  allow_outgoing:
+    - "443"
+  allow_incoming: []
+
+audit:
+  enabled: true
+  log_path: "/tmp/purple/audit/cicd-worker.log"
+  detail_level: ["syscall"]

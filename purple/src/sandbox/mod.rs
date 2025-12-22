@@ -8,7 +8,7 @@ use crate::policy::compiler::CompiledPolicy;
 use crate::sandbox::ebpf::{CorrelationEngine, EbpfLoader};
 
 use nix::sys::wait::waitpid;
-use nix::unistd::{ForkResult, execvp, fork};
+use nix::unistd::{ForkResult, execvp, fork, pipe};
 
 use std::ffi::CString;
 use std::fs;
@@ -102,6 +102,9 @@ impl Sandbox {
         let child_pid_clone = child_pid;
 
         // Set up signal handler for SIGTERM using ctrlc crate approach
+        // Note: ctrlc uses a dedicated thread, not POSIX signal handlers,
+        // so memory allocation is safe here (no signal context restrictions).
+        // This addresses High Priority Issue #10 from PRODUCTION_AUDIT.md.
         match ctrlc::set_handler(move || {
             if terminating_clone.load(Ordering::SeqCst) {
                 // Already terminating, ignore
@@ -164,6 +167,8 @@ impl Sandbox {
         let sandbox_id = self.sandbox_id.clone();
 
         // Set up signal handler for SIGTERM
+        // Note: ctrlc uses a dedicated thread, not POSIX signal handlers,
+        // so memory allocation is safe here (no signal context restrictions)
         match ctrlc::set_handler(move || {
             log::info!("Child: Received SIGTERM/SIGINT, initiating graceful cleanup");
 
@@ -402,10 +407,18 @@ impl Sandbox {
             PurpleError::NamespaceError(format!("PID namespace setup failed: {}", e))
         })?;
 
-        // 4. Fork to enter the new PID namespace
+        // 4. Create synchronization pipe for eBPF registration
+        let (sync_read, sync_write) = pipe().map_err(|e| {
+            PurpleError::NamespaceError(format!("Failed to create sync pipe: {}", e))
+        })?;
+
+        // 5. Fork to enter the new PID namespace
         log::info!("Forking to enter new PID namespace...");
         match unsafe { fork() } {
             Ok(ForkResult::Parent { child }) => {
+                // Close the read end in parent - we only need to write
+                nix::unistd::close(sync_read).ok();
+
                 log::info!("Parent: Waiting for child PID {}", child);
 
                 // Add child to cgroup BEFORE it continues execution
@@ -426,27 +439,96 @@ impl Sandbox {
                     log::warn!("Failed to register child PID with eBPF filters: {}", e);
                 }
 
+                // Signal child that eBPF registration is complete
+                let sync_byte: u8 = 1;
+                if let Err(e) = nix::unistd::write(&sync_write, &[sync_byte]) {
+                    log::error!("Failed to signal child via sync pipe: {}", e);
+                    // Continue anyway - child might still work
+                }
+                // Close the write end - we're done with synchronization
+                nix::unistd::close(sync_write).ok();
+
                 // Set up signal handler for parent to handle graceful termination
                 self.setup_parent_signal_handlers(child);
 
-                // Wait for the child to finish
-                let exit_code = match waitpid(child, None) {
-                    Ok(status) => {
-                        log::info!("Child exited with status: {:?}", status);
-                        match status {
-                            nix::sys::wait::WaitStatus::Exited(_, code) => code,
-                            nix::sys::wait::WaitStatus::Signaled(_, signal, _) => {
-                                128 + (signal as i32)
+                // Set up timeout enforcement variables
+                let start_time = std::time::Instant::now();
+                let timeout_duration = self
+                    .policy
+                    .resources
+                    .session_timeout_seconds
+                    .map(std::time::Duration::from_secs);
+
+                if let Some(secs) = self.policy.resources.session_timeout_seconds {
+                    log::info!("🕒 Starting timeout enforcement for {} seconds", secs);
+                }
+
+                // Wait for the child to finish with timeout enforcement
+                let exit_code = loop {
+                    // Check for timeout
+                    if let Some(timeout) = timeout_duration
+                        && start_time.elapsed() >= timeout
+                    {
+                        log::warn!(
+                            "⏰ Session timeout reached - terminating child process {}",
+                            child
+                        );
+
+                        // Try to terminate gracefully first
+                        if let Err(e) =
+                            nix::sys::signal::kill(child, nix::sys::signal::Signal::SIGTERM)
+                        {
+                            log::error!("Failed to send SIGTERM to child: {}", e);
+                        }
+
+                        // Wait a bit for graceful termination (blocking here is fine as we are timing out)
+                        std::thread::sleep(std::time::Duration::from_secs(2));
+
+                        // Force kill
+                        let _ = nix::sys::signal::kill(child, nix::sys::signal::Signal::SIGKILL);
+
+                        // Wait for the final exit
+                        match waitpid(child, None) {
+                            Ok(status) => {
+                                log::info!("Child exited after timeout with status: {:?}", status);
+                                break match status {
+                                    nix::sys::wait::WaitStatus::Exited(_, code) => code,
+                                    nix::sys::wait::WaitStatus::Signaled(_, signal, _) => {
+                                        128 + (signal as i32)
+                                    }
+                                    _ => 1,
+                                };
                             }
-                            _ => 1, // Default error for other states
+                            Err(_) => break 1, // Assume error exit
                         }
                     }
-                    Err(e) => {
-                        log::error!("Failed to wait for child: {}", e);
-                        return Err(PurpleError::CommandError(format!(
-                            "Failed to wait for child: {}",
-                            e
-                        )));
+
+                    // Check if child has exited
+                    match waitpid(child, Some(nix::sys::wait::WaitPidFlag::WNOHANG)) {
+                        Ok(nix::sys::wait::WaitStatus::StillAlive) => {
+                            // Child still running, sleep briefly to prevent busy loop
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                        }
+                        Ok(status) => {
+                            log::info!("Child exited with status: {:?}", status);
+                            break match status {
+                                nix::sys::wait::WaitStatus::Exited(_, code) => code,
+                                nix::sys::wait::WaitStatus::Signaled(_, signal, _) => {
+                                    128 + (signal as i32)
+                                }
+                                _ => 1,
+                            };
+                        }
+                        Err(e) => {
+                            if e == nix::errno::Errno::EINTR {
+                                continue;
+                            }
+                            log::error!("Failed to wait for child: {}", e);
+                            return Err(PurpleError::CommandError(format!(
+                                "Failed to wait for child: {}",
+                                e
+                            )));
+                        }
                     }
                 };
 
@@ -458,6 +540,20 @@ impl Sandbox {
             Ok(ForkResult::Child) => {
                 // Child Process: Setup environment and Exec
                 log::info!("Child: I am running in the new PID namespace!");
+
+                // Close the write end in child - we only need to read
+                nix::unistd::close(sync_write).ok();
+
+                // Wait for parent to signal that eBPF registration is complete
+                log::info!("Child: Waiting for eBPF registration to complete...");
+                let mut sync_buffer = [0u8; 1];
+                if let Err(e) = nix::unistd::read(&sync_read, &mut sync_buffer) {
+                    log::error!("Child: Failed to wait for eBPF sync signal: {}", e);
+                    // Continue anyway - might work without eBPF
+                }
+                // Close the read end - we're done with synchronization
+                nix::unistd::close(sync_read).ok();
+                log::info!("Child: ✓ eBPF registration complete, proceeding with execution");
 
                 // Set up signal handlers for graceful cleanup
                 self.setup_child_signal_handlers();
@@ -490,12 +586,24 @@ impl Sandbox {
                 // 8. Exec
                 log::info!("Child: Executing actual command...");
 
-                let prog = CString::new(self.agent_command[0].clone()).unwrap();
+                let prog = CString::new(self.agent_command[0].clone()).map_err(|e| {
+                    PurpleError::CommandError(format!(
+                        "Invalid command (contains null byte): {}",
+                        e
+                    ))
+                })?;
                 let args: Vec<CString> = self
                     .agent_command
                     .iter()
-                    .map(|arg| CString::new(arg.clone()).unwrap())
-                    .collect();
+                    .map(|arg| {
+                        CString::new(arg.clone()).map_err(|e| {
+                            PurpleError::CommandError(format!(
+                                "Invalid argument (contains null byte): {}",
+                                e
+                            ))
+                        })
+                    })
+                    .collect::<Result<Vec<CString>>>()?;
 
                 // execvp never returns on success (it replaces the process),
                 // so we only need to handle the error case

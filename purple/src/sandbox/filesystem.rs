@@ -6,6 +6,101 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
+use std::os::unix::fs::OpenOptionsExt;
+
+/// Safely create a file without following symlinks (TOCTOU protection)
+fn safe_create_file(path: &Path) -> Result<()> {
+    // Check if path exists first (without following symlinks)
+    if path.exists() {
+        return Ok(());
+    }
+
+    // Check if parent directory is a symlink
+    if let Some(parent) = path.parent() {
+        let parent_metadata = parent.symlink_metadata().map_err(|e| {
+            PurpleError::FilesystemError(format!(
+                "Failed to get metadata for parent directory {}: {}",
+                parent.display(),
+                e
+            ))
+        })?;
+
+        if parent_metadata.file_type().is_symlink() {
+            return Err(PurpleError::FilesystemError(format!(
+                "Parent directory {} is a symlink - potential TOCTOU attack",
+                parent.display()
+            )));
+        }
+    }
+
+    // Check if the path itself is a symlink
+    if path
+        .symlink_metadata()
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err(PurpleError::FilesystemError(format!(
+            "Path {} is a symlink - potential TOCTOU attack",
+            path.display()
+        )));
+    }
+
+    // Create the file using OpenOptions with O_NOFOLLOW to prevent following symlinks
+    // This provides atomic protection against the final component being a symlink
+    fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(|e| {
+            PurpleError::FilesystemError(format!(
+                "Failed to create file {} (O_NOFOLLOW): {}",
+                path.display(),
+                e
+            ))
+        })?;
+
+    Ok(())
+}
+
+/// Validate a path for symlink attacks (TOCTOU protection)
+/// Returns Ok(()) if the path is safe, Err if it's a symlink or has symlink parents
+fn validate_path_no_symlinks(path: &Path) -> Result<()> {
+    // Check if the path itself is a symlink
+    if path
+        .symlink_metadata()
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err(PurpleError::FilesystemError(format!(
+            "Path {} is a symlink - potential security vulnerability",
+            path.display()
+        )));
+    }
+
+    // Check each parent directory for symlinks
+    let mut current_path = path.to_path_buf();
+    while let Some(parent) = current_path.parent() {
+        if parent
+            .symlink_metadata()
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            return Err(PurpleError::FilesystemError(format!(
+                "Parent directory {} is a symlink - potential security vulnerability",
+                parent.display()
+            )));
+        }
+        current_path = parent.to_path_buf();
+        // Stop at root to avoid infinite loop
+        if current_path == Path::new("/") {
+            break;
+        }
+    }
+
+    Ok(())
+}
+
 /// Setup filesystem isolation
 pub fn setup_filesystem(policy: &CompiledPolicy, sandbox_root: &Path) -> Result<()> {
     log::info!("Setting up filesystem isolation...");
@@ -61,16 +156,8 @@ pub fn setup_filesystem(policy: &CompiledPolicy, sandbox_root: &Path) -> Result<
                 ))
             })?;
         } else {
-            // Assume it's a file - create empty file as mount point
-            if !full_sandbox_path.exists() {
-                fs::File::create(&full_sandbox_path).map_err(|e| {
-                    PurpleError::FilesystemError(format!(
-                        "Failed to create mount point file {}: {}",
-                        full_sandbox_path.display(),
-                        e
-                    ))
-                })?;
-            }
+            // Assume it's a file - create empty file as mount point (TOCTOU-safe)
+            safe_create_file(&full_sandbox_path)?;
         }
 
         log::info!(
@@ -214,15 +301,32 @@ pub fn setup_filesystem(policy: &CompiledPolicy, sandbox_root: &Path) -> Result<
             })?;
         }
 
-        // Configurable DNS servers
+        // Configurable DNS servers with validation
         let nameservers = if let Some(servers) = &policy.network.dns_servers {
-            servers.clone()
+            // Validate DNS server formats
+            let mut valid_servers = Vec::new();
+            for server in servers {
+                // Basic validation: should be IPv4, IPv6, or hostname
+                if server.contains('.') || server.contains(':') {
+                    valid_servers.push(server.clone());
+                } else {
+                    log::warn!("Invalid DNS server format '{}' - skipping", server);
+                }
+            }
+
+            if valid_servers.is_empty() {
+                log::warn!("No valid DNS servers in policy, using defaults");
+                vec!["8.8.8.8".to_string(), "8.8.4.4".to_string()]
+            } else {
+                valid_servers
+            }
         } else {
+            // Default DNS servers (Google Public DNS)
             vec!["8.8.8.8".to_string(), "8.8.4.4".to_string()]
         };
 
         let mut resolv_conf_content = String::new();
-        for ns in nameservers {
+        for ns in &nameservers {
             resolv_conf_content.push_str(&format!(
                 "nameserver {}
 ",
@@ -230,10 +334,21 @@ pub fn setup_filesystem(policy: &CompiledPolicy, sandbox_root: &Path) -> Result<
             ));
         }
 
+        // Validate DNS config path for symlinks before writing
+        validate_path_no_symlinks(&resolv_conf_path)?;
+
         fs::write(&resolv_conf_path, resolv_conf_content).map_err(|e| {
             PurpleError::FilesystemError(format!("Failed to write DNS configuration: {}", e))
         })?;
-        log::info!("Configured DNS resolvers for network access");
+        // Log the configured DNS servers for debugging
+        log::info!("Configured DNS resolvers: {}", nameservers.join(", "));
+
+        // Helpful message about configuration
+        if nameservers == vec!["8.8.8.8".to_string(), "8.8.4.4".to_string()] {
+            log::info!(
+                "💡 Tip: Configure custom DNS servers in your policy using network.dns_servers"
+            );
+        }
     }
 
     // Change root to the sandbox directory

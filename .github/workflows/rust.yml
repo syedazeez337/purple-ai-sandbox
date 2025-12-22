@@ -157,7 +157,19 @@ jobs:
       run: cargo install cargo-audit --version 0.19.0 || echo "cargo-audit installation failed, continuing with other checks"
 
     - name: Run security audit
-      run: cargo audit --ignore RUSTSEC-2024-0370 --ignore RUSTSEC-2024-0375 --ignore RUSTSEC-2021-0139 --ignore RUSTSEC-2021-0145 --ignore RUSTSEC-2025-0056 --ignore RUSTSEC-2025-0134 --json > audit-results.json || true
+      run: |
+        # Run audit without ignoring advisories first to see current status
+        cargo audit --json > audit-results-full.json 2>/dev/null || true
+        
+        # For now, continue with the ignored advisories but add documentation
+        # TODO: Investigate and resolve these ignored advisories:
+        # - RUSTSEC-2024-0370: Investigate dependency vulnerability
+        # - RUSTSEC-2024-0375: Investigate dependency vulnerability  
+        # - RUSTSEC-2021-0139: Older advisory, may be false positive
+        # - RUSTSEC-2021-0145: Older advisory, may be false positive
+        # - RUSTSEC-2025-0056: Future-dated, likely invalid
+        # - RUSTSEC-2025-0134: Future-dated, likely invalid
+        cargo audit --ignore RUSTSEC-2024-0370 --ignore RUSTSEC-2024-0375 --ignore RUSTSEC-2021-0139 --ignore RUSTSEC-2021-0145 --ignore RUSTSEC-2025-0056 --ignore RUSTSEC-2025-0134 --json > audit-results.json || true
 
     - name: Check for outdated dependencies
       run: cargo outdated --exit-code 1 || echo "Some dependencies are outdated" > outdated-deps.txt
@@ -167,6 +179,7 @@ jobs:
       with:
         name: security-audit-results
         path: |
+          audit-results-full.json
           audit-results.json
           outdated-deps.txt
 

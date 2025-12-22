@@ -1,7 +1,44 @@
 // purple/src/sandbox/manager.rs
-
 #![allow(dead_code)]
 
+/// # Sandbox Manager - Multi-Sandbox Management System
+///
+/// This module provides advanced sandbox management capabilities including:
+/// - Multi-sandbox instance management
+/// - Resource allocation and tracking
+/// - System resource pool management
+/// - Concurrent sandbox execution
+///
+/// ## Current Status
+///
+/// ⚠️  This module is fully implemented and tested but not yet integrated
+/// into the main execution flow. It's currently used in integration tests
+/// (`tests/test_manager.rs`) to verify multi-sandbox functionality.
+///
+/// ## Integration Plan
+///
+/// To integrate this manager into the main application:
+/// 1. Replace direct Sandbox::new() calls with manager.create_sandbox()
+/// 2. Use manager.execute_sandbox() instead of sandbox.execute()
+/// 3. Implement proper resource cleanup via manager.cleanup_sandbox()
+/// 4. Add manager.list_sandboxes() to CLI for monitoring
+///
+/// ## Benefits of Integration
+///
+/// - Prevents resource exhaustion from multiple sandboxes
+/// - Provides centralized monitoring and management
+/// - Enables resource quotas and fair sharing
+/// - Supports concurrent sandbox execution
+///
+/// ## Usage Example
+///
+/// ```rust
+/// let mut manager = SandboxManager::new();
+/// let sandbox_id = manager.create_sandbox(policy, command)?;
+/// let exit_code = manager.execute_sandbox(&sandbox_id)?;
+/// let status = manager.get_sandbox_status(&sandbox_id)?;
+/// manager.cleanup_sandbox(&sandbox_id)?;
+/// ```
 use crate::error::{PurpleError, Result};
 use crate::policy::compiler::CompiledPolicy;
 use crate::sandbox::Sandbox;
