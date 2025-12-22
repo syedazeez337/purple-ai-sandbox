@@ -34,7 +34,12 @@ impl SyscallEvent {
             comm: [0; 16],
         };
 
-        // Safe because we've checked the length
+        // Check alignment to prevent undefined behavior
+        if bytes.as_ptr().align_offset(std::mem::align_of::<Self>()) != 0 {
+            return None;
+        }
+
+        // Safe because we've checked the length and alignment
         unsafe {
             std::ptr::copy_nonoverlapping(
                 bytes.as_ptr() as *const Self,
@@ -143,7 +148,12 @@ impl FileAccessEvent {
             timestamp_ns: 0,
         };
 
-        // Safe because we've checked the length
+        // Check alignment to prevent undefined behavior
+        if bytes.as_ptr().align_offset(std::mem::align_of::<Self>()) != 0 {
+            return None;
+        }
+
+        // Safe because we've checked the length and alignment
         unsafe {
             std::ptr::copy_nonoverlapping(
                 bytes.as_ptr() as *const Self,
@@ -206,7 +216,12 @@ impl NetworkEvent {
             timestamp_ns: 0,
         };
 
-        // Safe because we've checked the length
+        // Check alignment to prevent undefined behavior
+        if bytes.as_ptr().align_offset(std::mem::align_of::<Self>()) != 0 {
+            return None;
+        }
+
+        // Safe because we've checked the length and alignment
         unsafe {
             std::ptr::copy_nonoverlapping(
                 bytes.as_ptr() as *const Self,

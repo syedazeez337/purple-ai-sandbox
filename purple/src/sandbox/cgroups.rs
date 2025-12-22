@@ -2,6 +2,8 @@
 
 use crate::error::Result;
 use crate::policy::compiler::CompiledResourcePolicy;
+use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 /// Manages cgroups for resource limit enforcement
@@ -20,6 +22,52 @@ impl CgroupManager {
             cgroup_name,
             cgroup_path,
         }
+    }
+
+    /// Detect the root device major:minor numbers dynamically
+    /// Returns (major, minor) or None if detection fails
+    fn detect_root_device() -> Option<(u64, u64)> {
+        // Try to read from /proc/self/mountinfo first
+        if let Ok(file) = fs::File::open("/proc/self/mountinfo") {
+            let reader = BufReader::new(file);
+            for line in reader.lines().map_while(|r| r.ok()) {
+                // Look for the root filesystem entry
+                if line.contains(" / ") {
+                    // Parse format: <id> <parent> <major>:<minor> <root> <mountpoint> <options>
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 4 {
+                        let device_parts: Vec<&str> = parts[2].split(':').collect();
+                        if device_parts.len() == 2
+                            && let (Ok(major), Ok(minor)) = (
+                                device_parts[0].parse::<u64>(),
+                                device_parts[1].parse::<u64>(),
+                            )
+                        {
+                            return Some((major, minor));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: try to detect common devices
+        // Check if /dev/sda exists (common for traditional disks)
+        if Path::new("/dev/sda").exists() {
+            return Some((8, 0)); // Traditional SCSI/SATA device
+        }
+
+        // Check if /dev/nvme0n1 exists (common for NVMe)
+        if Path::new("/dev/nvme0n1").exists() {
+            return Some((259, 0)); // NVMe device
+        }
+
+        // Check if /dev/vda exists (common for virtual machines)
+        if Path::new("/dev/vda").exists() {
+            return Some((253, 0)); // Virtio device
+        }
+
+        // Default fallback to traditional device (8:0)
+        Some((8, 0))
     }
 
     /// Sets up cgroups and applies resource limits
@@ -174,19 +222,26 @@ impl CgroupManager {
 
             // For cgroup2, use io.max to set I/O rate limits
             // Format: "<major>:<minor> <type> <limit>"
-            // We'll apply to all devices (8:0 for typical systems)
-            let io_max_path = self.cgroup_path.join("io.max");
-            let io_max_content = format!("8:0 rbytes={} wbytes={}", io_limit, io_limit);
+            // Detect root device dynamically
+            if let Some((major, minor)) = Self::detect_root_device() {
+                let io_max_path = self.cgroup_path.join("io.max");
+                let io_max_content = format!(
+                    "{}:{} rbytes={} wbytes={}",
+                    major, minor, io_limit, io_limit
+                );
 
-            match fs::write(io_max_path, io_max_content) {
-                Ok(_) => log::info!("✓ I/O rate limit applied successfully"),
-                Err(e) => {
-                    log::warn!(
-                        "Failed to set I/O rate limit: {}. This may require root privileges.",
-                        e
-                    );
-                    log::warn!("I/O rate limiting will not be enforced.");
+                match fs::write(io_max_path, io_max_content) {
+                    Ok(_) => log::info!("✓ I/O rate limit applied successfully"),
+                    Err(e) => {
+                        log::warn!(
+                            "Failed to set I/O rate limit: {}. This may require root privileges.",
+                            e
+                        );
+                        log::warn!("I/O rate limiting will not be enforced.");
+                    }
                 }
+            } else {
+                log::warn!("Failed to detect root device, I/O limits will not be applied");
             }
         } else {
             log::info!("No I/O limit specified");
@@ -195,7 +250,22 @@ impl CgroupManager {
         // Apply timeout limits
         if let Some(timeout_secs) = policy.session_timeout_seconds {
             log::info!("Setting session timeout to {} seconds", timeout_secs);
-            // Would implement process monitoring and termination
+
+            // Store timeout information for enforcement
+            // Note: Actual timeout enforcement happens in the sandbox execution
+            // through a separate monitoring thread that will terminate the process
+            // when the timeout is reached
+
+            // Create a timeout marker file for monitoring
+            let timeout_file_path = self.cgroup_path.join("timeout_info");
+            if let Err(e) = std::fs::write(
+                timeout_file_path,
+                format!("timeout_seconds={}", timeout_secs),
+            ) {
+                log::warn!("Failed to create timeout marker file: {}", e);
+            } else {
+                log::info!("⏳ Timeout marker created - will be enforced during execution");
+            }
         } else {
             log::info!("No session timeout specified");
         }

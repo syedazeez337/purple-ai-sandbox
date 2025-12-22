@@ -439,21 +439,27 @@ impl EbpfLoader {
 
         if let Some(bpf) = &mut self.syscall_bpf
             && let Ok(mut filter) =
-                AyaHashMap::<_, u32, u32>::try_from(bpf.map_mut("SYSCALL_FILTER").unwrap())
+                AyaHashMap::<_, u32, u32>::try_from(bpf.map_mut("SYSCALL_FILTER").ok_or_else(
+                    || EbpfError::MapError("SYSCALL_FILTER map not found".to_string()),
+                )?)
         {
             let _ = filter.remove(&pid_u32);
         }
 
         if let Some(bpf) = &mut self.file_bpf
-            && let Ok(mut filter) =
-                AyaHashMap::<_, u32, u32>::try_from(bpf.map_mut("FILE_FILTER").unwrap())
+            && let Ok(mut filter) = AyaHashMap::<_, u32, u32>::try_from(
+                bpf.map_mut("FILE_FILTER")
+                    .ok_or_else(|| EbpfError::MapError("FILE_FILTER map not found".to_string()))?,
+            )
         {
             let _ = filter.remove(&pid_u32);
         }
 
         if let Some(bpf) = &mut self.network_bpf
             && let Ok(mut filter) =
-                AyaHashMap::<_, u32, u32>::try_from(bpf.map_mut("NETWORK_FILTER").unwrap())
+                AyaHashMap::<_, u32, u32>::try_from(bpf.map_mut("NETWORK_FILTER").ok_or_else(
+                    || EbpfError::MapError("NETWORK_FILTER map not found".to_string()),
+                )?)
         {
             let _ = filter.remove(&pid_u32);
         }

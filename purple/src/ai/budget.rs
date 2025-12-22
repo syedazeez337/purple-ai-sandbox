@@ -87,7 +87,10 @@ impl BudgetEnforcer {
 
         // Check cost limit
         if let Some(max_cost_cents) = self.budget.max_cost_cents {
-            let mut current = self.current_cost_cents.lock().unwrap();
+            let mut current = self
+                .current_cost_cents
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             *current += cost_cents;
 
             if *current > max_cost_cents {
@@ -111,7 +114,10 @@ impl BudgetEnforcer {
             );
         } else {
             // No limit, just track
-            let mut current = self.current_cost_cents.lock().unwrap();
+            let mut current = self
+                .current_cost_cents
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             *current += cost_cents;
             log::debug!("Cost: ${:.2} (no limit)", *current as f64 / 100.0);
         }
@@ -123,14 +129,20 @@ impl BudgetEnforcer {
     pub fn get_usage(&self) -> BudgetUsage {
         BudgetUsage {
             tokens_used: self.current_tokens.load(Ordering::SeqCst),
-            cost_cents: *self.current_cost_cents.lock().unwrap(),
+            cost_cents: *self
+                .current_cost_cents
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()),
         }
     }
 
     /// Reset usage counters (for testing or new session)
     pub fn reset(&self) {
         self.current_tokens.store(0, Ordering::SeqCst);
-        *self.current_cost_cents.lock().unwrap() = 0;
+        *self
+            .current_cost_cents
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = 0;
     }
 }
 

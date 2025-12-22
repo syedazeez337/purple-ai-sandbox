@@ -36,6 +36,7 @@ hyper-util = { workspace = true }
 regex = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+chrono = { workspace = true }
 
 # eBPF dependencies (optional feature)
 aya = { version = "0.13", optional = true }

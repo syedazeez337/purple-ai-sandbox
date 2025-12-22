@@ -34,6 +34,7 @@ hyper-util = { version = "0.1.3", features = ["tokio"] }
 regex = "1.10.5"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+chrono = { version = "0.4.38", features = ["serde"] }
 
 # eBPF dependencies (userspace)
 aya = "0.13"

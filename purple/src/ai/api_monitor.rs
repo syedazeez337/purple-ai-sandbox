@@ -30,7 +30,7 @@ impl LLMAPIMonitor {
             CostCalculator::format_cost(call.cost_cents)
         );
 
-        let mut calls = self.calls.lock().unwrap();
+        let mut calls = self.calls.lock().unwrap_or_else(|e| e.into_inner());
         calls.push(call);
     }
 
@@ -82,12 +82,12 @@ impl LLMAPIMonitor {
 
     /// Get all recorded API calls
     pub fn get_calls(&self) -> Vec<APICall> {
-        self.calls.lock().unwrap().clone()
+        self.calls.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Get total usage statistics
     pub fn get_totals(&self) -> UsageStats {
-        let calls = self.calls.lock().unwrap();
+        let calls = self.calls.lock().unwrap_or_else(|e| e.into_inner());
 
         let mut stats = UsageStats::default();
         for call in calls.iter() {
@@ -151,7 +151,6 @@ struct OpenAIResponse {
 struct OpenAIUsage {
     prompt_tokens: u64,
     completion_tokens: u64,
-    #[allow(dead_code)]
     total_tokens: u64,
 }
 

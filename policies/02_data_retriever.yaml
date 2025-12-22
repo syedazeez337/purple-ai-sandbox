@@ -1,0 +1,55 @@
+name: "data-retriever"
+description: "Scenario 2: Web scraping agent. Network access enabled, restricted filesystem."
+
+filesystem:
+  immutable_paths:
+    - host_path: "/usr/bin"
+      sandbox_path: "/usr/bin"
+    - host_path: "/usr/lib"
+      sandbox_path: "/usr/lib"
+    - host_path: "/lib64"
+      sandbox_path: "/lib64"
+    - host_path: "/bin"
+      sandbox_path: "/bin"
+    - host_path: "/etc/ssl/certs"
+      sandbox_path: "/etc/ssl/certs"
+    - host_path: "/etc/pki"
+      sandbox_path: "/etc/pki"
+  scratch_paths:
+    - "/tmp"
+  output_paths:
+    - host_path: "/tmp/purple/output/data-retriever"
+      sandbox_path: "/data"
+  working_dir: "/tmp"
+
+syscalls:
+  default_deny: false
+  allow: []
+  deny:
+    - "ptrace"
+    - "mount"
+
+resources:
+  cpu_shares: 0.5
+  memory_limit_bytes: "512M"
+  pids_limit: 20
+  session_timeout_seconds: 600
+
+capabilities:
+  default_drop: true
+  add: []
+
+network:
+  isolated: false
+  allow_outgoing:
+    - "443"
+    - "80"
+    - "53"
+  allow_incoming: []
+  dns_servers:
+    - "8.8.8.8"
+
+audit:
+  enabled: true
+  log_path: "/tmp/purple/audit/data-retriever.log"
+  detail_level: ["network"]

@@ -531,9 +531,15 @@ impl Policy {
         };
 
         // --- Audit Compilation ---
+        let log_path = if self.audit.enabled {
+            validate_path(&self.audit.log_path, "audit.log_path", true)?
+        } else {
+            self.audit.log_path.clone()
+        };
+
         let compiled_audit = CompiledAuditPolicy {
             enabled: self.audit.enabled,
-            log_path: self.audit.log_path.clone(),
+            log_path,
             detail_level: self.audit.detail_level.iter().cloned().collect(),
         };
 

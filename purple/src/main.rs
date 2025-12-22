@@ -44,8 +44,86 @@ fn main() {
 
     match &cli.command {
         Commands::Init => {
-            println!("Initializing Purple environment...");
-            // TODO: Implement environment initialization logic
+            println!("🚀 Initializing Purple AI Sandbox environment...");
+
+            // Create necessary directories
+            let dirs = ["policies", "sessions", "logs", "audit"];
+            for dir in dirs.iter() {
+                if let Err(e) = std::fs::create_dir_all(dir) {
+                    eprintln!("⚠️  Failed to create {} directory: {}", dir, e);
+                } else {
+                    println!("✅ Created {} directory", dir);
+                }
+            }
+
+            // Create default policy if it doesn't exist
+            let default_policy_path = "./policies/development.yaml";
+            if !std::path::Path::new(default_policy_path).exists() {
+                println!("📝 Creating default development policy...");
+                let default_policy = r#"# Purple AI Sandbox - Default Development Policy
+# This policy provides a balanced approach for AI development
+# with reasonable security constraints while allowing flexibility
+
+name: "development"
+description: "Default development policy with balanced security"
+version: "1.0"
+
+filesystem:
+  working_directory: "/tmp/purple-work"
+  immutable_paths:
+    - host_path: "/etc/passwd"
+      sandbox_path: "/etc/passwd"
+    - host_path: "/etc/group"
+      sandbox_path: "/etc/group"
+  scratch_dirs:
+    - "/tmp/purple-scratch"
+
+resources:
+  memory_limit_mb: 1024
+  cpu_shares: 512
+  pids_limit: 100
+  io_limit_mb_per_sec: 50
+
+network:
+  isolated: false
+  allowed_outgoing_ports:
+    - 80
+    - 443
+    - 8080
+  blocked_ips_v4:
+    - "0.0.0.0"
+  blocked_ips_v6:
+    - "::1"
+
+audit:
+  enabled: true
+  log_path: "./logs/audit.log"
+  detail_level:
+    - "syscalls"
+    - "network"
+    - "filesystem"
+
+syscalls:
+  default_action: "allow"
+  deny_list:
+    - "ptrace"
+    - "kill"
+    - "reboot"
+    - "mount"
+    - "umount"
+"#;
+
+                if let Err(e) = std::fs::write(default_policy_path, default_policy) {
+                    eprintln!("⚠️  Failed to create default policy: {}", e);
+                } else {
+                    println!("✅ Created default development policy");
+                }
+            } else {
+                println!("ℹ️  Default policy already exists");
+            }
+
+            println!("✅ Purple environment initialization complete!");
+            println!("💡 You can now create custom policies and run sandboxed AI agents.");
         }
         Commands::Profile { command } => match command {
             ProfileCommands::Create { name } => {
@@ -500,10 +578,11 @@ audit:
                         // Set up Ctrl+C handler
                         let running = Arc::new(AtomicBool::new(true));
                         let r = running.clone();
-                        ctrlc::set_handler(move || {
+                        if let Err(e) = ctrlc::set_handler(move || {
                             r.store(false, Ordering::SeqCst);
-                        })
-                        .expect("Failed to set Ctrl+C handler");
+                        }) {
+                            eprintln!("Warning: Could not set signal handler: {}", e);
+                        }
 
                         // Note: Without registering any PIDs, we won't see events
                         // This monitor mode shows all events from registered sandboxes
@@ -554,24 +633,172 @@ audit:
             }
         }
         Commands::Replay(args) => {
-            println!("Replaying session {}", args.session_id);
-            // TODO: Implement session replay logic
-            println!("Session replay not yet implemented");
+            println!("🎬 Replaying session {}", args.session_id);
+
+            // Check if session directory exists
+            let session_dir = format!("./sessions/{}", args.session_id);
+            if !std::path::Path::new(&session_dir).exists() {
+                eprintln!("❌ Session {} not found", args.session_id);
+                return;
+            }
+
+            // Look for audit log
+            let audit_log_path = format!("{}/audit.log", session_dir);
+            if std::path::Path::new(&audit_log_path).exists() {
+                println!("📊 Session Audit Log:");
+                println!("===================");
+
+                if let Ok(log_content) = std::fs::read_to_string(&audit_log_path) {
+                    // Show last 50 lines or full content if shorter
+                    let lines: Vec<&str> = log_content.lines().collect();
+                    let start = if lines.len() > 50 {
+                        lines.len() - 50
+                    } else {
+                        0
+                    };
+
+                    for line in lines.iter().skip(start) {
+                        println!("{}", line);
+                    }
+
+                    if lines.len() > 50 {
+                        println!("... (showing last 50 of {} lines)", lines.len());
+                    }
+                } else {
+                    eprintln!("⚠️  Failed to read audit log");
+                }
+            } else {
+                println!("ℹ️  No audit log found for this session");
+            }
+
+            // Look for session metadata
+            let metadata_path = format!("{}/metadata.json", session_dir);
+            if std::path::Path::new(&metadata_path).exists() {
+                println!("\n📋 Session Metadata:");
+                println!("===================");
+
+                if let Ok(metadata) = std::fs::read_to_string(&metadata_path) {
+                    println!("{}", metadata);
+                } else {
+                    eprintln!("⚠️  Failed to read session metadata");
+                }
+            }
+
+            println!(
+                "\n💡 Tip: Use `purple audit --session {} --format json` for detailed analysis",
+                args.session_id
+            );
         }
         Commands::Audit(args) => {
-            println!("Generating audit report for session {}", args.session);
+            println!("🔍 Generating audit report...");
 
-            #[cfg(feature = "ebpf")]
-            {
-                // TODO: Implement actual audit logic
-                println!("Audit format: {}", args.format);
-                println!("Audit report generation not yet implemented");
+            // Determine what to audit
+            let target_path = if args.session.is_empty() {
+                // Audit all sessions
+                "./sessions/".to_string()
+            } else {
+                // Audit specific session
+                format!("./sessions/{}", args.session)
+            };
+
+            if !std::path::Path::new(&target_path).exists() {
+                eprintln!("❌ Target not found: {}", target_path);
+                return;
             }
 
-            #[cfg(not(feature = "ebpf"))]
-            {
-                println!("eBPF feature not enabled. Please compile with --features ebpf");
+            match args.format.as_str() {
+                "json" => {
+                    println!("📄 Generating JSON audit report...");
+
+                    // Simple JSON structure for now
+                    let json_report = if args.session.is_empty() {
+                        format!(
+                            "{{\"audit_type\": \"all_sessions\", \"timestamp\": \"{}\", \"sessions_found\": {}}}",
+                            chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                            std::fs::read_dir(&target_path)
+                                .map(|d| d.count())
+                                .unwrap_or(0)
+                        )
+                    } else {
+                        format!(
+                            "{{\"audit_type\": \"session\", \"session_id\": \"{}\", \"timestamp\": \"{}\"}}",
+                            args.session,
+                            chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+                        )
+                    };
+
+                    println!("{}", json_report);
+                }
+                "text" | "txt" => {
+                    println!("📄 Generating text audit report...");
+                    println!("==============================");
+
+                    if args.session.is_empty() {
+                        println!("Auditing all sessions in: {}", target_path);
+
+                        if let Ok(entries) = std::fs::read_dir(&target_path) {
+                            let mut session_count = 0;
+                            for entry in entries.flatten() {
+                                if entry.path().is_dir() {
+                                    session_count += 1;
+                                    println!("- Session: {}", entry.file_name().to_string_lossy());
+                                }
+                            }
+                            println!("\nTotal sessions found: {}", session_count);
+                        }
+                    } else {
+                        println!("Auditing session: {}", args.session);
+                        println!("Session directory: {}", target_path);
+
+                        // List session files
+                        if let Ok(entries) = std::fs::read_dir(&target_path) {
+                            let mut file_count = 0;
+                            for entry in entries.flatten() {
+                                file_count += 1;
+                                println!("- {}", entry.file_name().to_string_lossy());
+                            }
+                            println!("\nTotal files: {}", file_count);
+                        }
+                    }
+                }
+                "html" => {
+                    println!("🌐 Generating HTML audit report...");
+                    println!("<html><body><h1>Purple AI Sandbox Audit Report</h1>");
+                    println!(
+                        "<p>Generated: {}</p>",
+                        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+                    );
+
+                    if args.session.is_empty() {
+                        println!("<h2>All Sessions</h2><ul>");
+                        if let Ok(entries) = std::fs::read_dir(&target_path) {
+                            for entry in entries.flatten() {
+                                if entry.path().is_dir() {
+                                    println!("<li>{}</li>", entry.file_name().to_string_lossy());
+                                }
+                            }
+                        }
+                        println!("</ul>");
+                    } else {
+                        println!("<h2>Session: {}</h2>", args.session);
+                        println!("<h3>Files:</h3><ul>");
+                        if let Ok(entries) = std::fs::read_dir(&target_path) {
+                            for entry in entries.flatten() {
+                                println!("<li>{}</li>", entry.file_name().to_string_lossy());
+                            }
+                        }
+                        println!("</ul>");
+                    }
+
+                    println!("</body></html>");
+                }
+                _ => {
+                    eprintln!("❌ Unsupported format: {}", args.format);
+                    println!("Supported formats: json, text, html");
+                }
             }
+
+            println!("✅ Audit report generation complete!");
         }
     }
 }
