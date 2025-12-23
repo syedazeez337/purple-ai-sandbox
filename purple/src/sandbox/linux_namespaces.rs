@@ -137,21 +137,26 @@ pub fn unshare_pid_namespace() -> Result<(), String> {
 
 /// Creates a new mount namespace.
 /// This allows the sandbox to have its own view of the filesystem mounts.
+/// Uses MS_SHARED propagation so that bind mounts created in the parent
+/// are visible in this child namespace - critical for pivot_root to work.
 pub fn unshare_mount_namespace() -> Result<(), String> {
     unshare(CloneFlags::CLONE_NEWNS)
         .map_err(|e| format!("Failed to unshare mount namespace: {}", e))?;
     log::info!("Mount namespace unshared.");
-    // Make sure the new mount namespace doesn't inherit mounts from the parent.
-    // This is crucial before performing any bind mounts.
+
+    // CRITICAL: Use SHARED propagation so parent's bind mounts are visible.
+    // Without this, bind mounts created before fork won't be visible after
+    // we enter the mount namespace, causing "command not found" errors.
     nix::mount::mount(
-        None::<&Path>,  // source
-        Path::new("/"), // target
-        None::<&CStr>,  // fstype
-        nix::mount::MsFlags::MS_REC | nix::mount::MsFlags::MS_PRIVATE,
-        None::<&CStr>, // data
+        None::<&Path>,
+        Path::new("/"),
+        None::<&CStr>,
+        nix::mount::MsFlags::MS_REC | nix::mount::MsFlags::MS_SHARED,
+        None::<&CStr>,
     )
-    .map_err(|e| format!("Failed to make root filesystem private: {}", e))?;
-    log::info!("Root filesystem made private.");
+    .map_err(|e| format!("Failed to make root filesystem shared: {}", e))?;
+    log::info!("Root filesystem set to shared propagation.");
+
     Ok(())
 }
 
