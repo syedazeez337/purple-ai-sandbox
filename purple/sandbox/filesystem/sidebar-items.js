@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["create_device_node","detect_capabilities","safe_create_file","setup_filesystem","setup_secure_dev","setup_secure_sys","validate_dns_servers","validate_path_no_symlinks"],"struct":["FilesystemTransaction","MountOperation"]};
+window.SIDEBAR_ITEMS = {"fn":["create_device_node","detect_capabilities","safe_create_file","setup_filesystem","setup_secure_dev","validate_dns_servers","validate_path_no_symlinks","verify_and_repair_bind_mounts"],"struct":["FilesystemTransaction","MountOperation"]};
