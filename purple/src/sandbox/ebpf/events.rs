@@ -39,7 +39,11 @@ impl SyscallEvent {
             return None;
         }
 
-        // Safe because we've checked the length and alignment
+        // SAFETY: We have verified that:
+        // 1. The input slice has at least size_of::<Self>() bytes
+        // 2. The pointer is properly aligned for Self
+        // 3. We're copying a single element (size 1)
+        // 4. The source and destination do not overlap (copy_nonoverlapping)
         unsafe {
             std::ptr::copy_nonoverlapping(
                 bytes.as_ptr() as *const Self,

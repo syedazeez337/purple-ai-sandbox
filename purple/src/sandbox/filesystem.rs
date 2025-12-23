@@ -1,11 +1,36 @@
 use crate::error::{PurpleError, Result};
 use crate::policy::compiler::CompiledPolicy;
-use nix::mount::{MsFlags, mount};
-use nix::unistd::chroot;
+use nix::mount::{MntFlags, MsFlags, mount, umount2};
+use nix::unistd::{chdir, pivot_root};
 use std::fs;
+use std::net::IpAddr;
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+
+/// Validates a DNS server string and returns valid IP addresses
+fn validate_dns_servers(servers: &[String]) -> Vec<String> {
+    let mut valid = Vec::new();
+
+    for server in servers {
+        // Try parsing as IPv4 or IPv6 address
+        if server.parse::<IpAddr>().is_ok() {
+            valid.push(server.clone());
+        } else {
+            log::warn!(
+                "Invalid DNS server '{}' - must be valid IPv4 or IPv6 address",
+                server
+            );
+        }
+    }
+
+    if valid.is_empty() {
+        log::warn!("No valid DNS servers provided, using defaults");
+        vec!["8.8.8.8".to_string(), "8.8.4.4".to_string()]
+    } else {
+        valid
+    }
+}
 
 /// Tracks a mount operation for potential rollback
 #[derive(Debug, Clone)]
@@ -399,25 +424,9 @@ pub fn setup_filesystem(policy: &CompiledPolicy, sandbox_root: &Path) -> Result<
             )));
         }
 
-        // Configurable DNS servers with validation
+        // Configurable DNS servers with proper validation
         let nameservers = if let Some(servers) = &policy.network.dns_servers {
-            // Validate DNS server formats
-            let mut valid_servers = Vec::new();
-            for server in servers {
-                // Basic validation: should be IPv4, IPv6, or hostname
-                if server.contains('.') || server.contains(':') {
-                    valid_servers.push(server.clone());
-                } else {
-                    log::warn!("Invalid DNS server format '{}' - skipping", server);
-                }
-            }
-
-            if valid_servers.is_empty() {
-                log::warn!("No valid DNS servers in policy, using defaults");
-                vec!["8.8.8.8".to_string(), "8.8.4.4".to_string()]
-            } else {
-                valid_servers
-            }
+            validate_dns_servers(servers)
         } else {
             // Default DNS servers (Google Public DNS)
             vec!["8.8.8.8".to_string(), "8.8.4.4".to_string()]
@@ -459,25 +468,98 @@ pub fn setup_filesystem(policy: &CompiledPolicy, sandbox_root: &Path) -> Result<
         }
     }
 
-    // Change root to the sandbox directory
-    log::info!("Changing root to {}", sandbox_root.display());
-    if let Err(e) = chroot(sandbox_root) {
+    // Change root to the sandbox directory using pivot_root
+    // pivot_root is more secure than chroot because:
+    // 1. It completely replaces the root filesystem
+    // 2. The old root is moved to put_old and can be unmounted
+    // 3. It prevents escape via /proc/PID/root symlinks
+    log::info!(
+        "Using pivot_root to change root to {}",
+        sandbox_root.display()
+    );
+
+    // For pivot_root, we need:
+    // 1. The new root to be a mount point (it is, we created it)
+    // 2. A put_old directory inside the new root to hold the old root
+    let put_old = sandbox_root.join(".put_old");
+
+    // Create put_old directory
+    if let Err(e) = fs::create_dir_all(&put_old) {
         transaction.rollback();
         return Err(PurpleError::FilesystemError(format!(
-            "Failed to chroot to {}: {}",
-            sandbox_root.display(),
+            "Failed to create put_old directory: {}",
             e
         )));
     }
 
-    // Change working directory
-    if let Err(e) = std::env::set_current_dir(&policy.filesystem.working_dir) {
+    // Make sure put_old is on a separate mount point from the old root
+    // by bind-mounting sandbox_root to itself first (makes it a mount point)
+    if let Err(e) = mount(
+        Some(sandbox_root),
+        sandbox_root,
+        None::<&str>,
+        MsFlags::MS_BIND,
+        None::<&str>,
+    ) {
+        transaction.rollback();
+        return Err(PurpleError::FilesystemError(format!(
+            "Failed to make sandbox root a mount point: {}",
+            e
+        )));
+    }
+    transaction.add_mount(sandbox_root.to_path_buf());
+
+    // Use pivot_root to change the root filesystem
+    // SAFETY: pivot_root is a fundamental containerization syscall.
+    // We ensure:
+    // 1. new_root (sandbox_root) is a mount point
+    // 2. put_old exists and is empty
+    // 3. Neither root is the current process's root
+    if let Err(e) = pivot_root(sandbox_root, &put_old) {
+        transaction.rollback();
+        return Err(PurpleError::FilesystemError(format!(
+            "Failed to pivot_root to {}: {}",
+            sandbox_root.display(),
+            e
+        )));
+    }
+    log::info!("Successfully pivoted root to {}", sandbox_root.display());
+
+    // Now the old root is in put_old. We need to:
+    // 1. Unmount the old root from put_old
+    // 2. Remove the put_old directory
+    // 3. Change to the working directory
+
+    // Unmount the old root filesystem from put_old
+    if let Err(e) = umount2(&put_old, MntFlags::MNT_DETACH) {
+        log::warn!(
+            "Failed to unmount old root from put_old: {}. This is not critical.",
+            e
+        );
+    } else {
+        log::debug!("Unmounted old root from put_old");
+    }
+
+    // Remove the put_old directory (it's now empty after unmount)
+    if let Err(e) = fs::remove_dir(&put_old) {
+        log::warn!(
+            "Failed to remove put_old directory: {}. This is not critical.",
+            e
+        );
+    }
+
+    // Change to the new root directory
+    if let Err(e) = chdir(&policy.filesystem.working_dir) {
         return Err(PurpleError::FilesystemError(format!(
             "Failed to change working directory to {}: {}",
             policy.filesystem.working_dir.display(),
             e
         )));
     }
+    log::info!(
+        "Changed working directory to {}",
+        policy.filesystem.working_dir.display()
+    );
 
     Ok(())
 }

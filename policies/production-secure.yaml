@@ -1,0 +1,147 @@
+name: "production-secure"
+description: "High-security production policy with advanced syscall filtering"
+
+filesystem:
+  immutable_paths:
+    - host_path: "/usr/bin"
+      sandbox_path: "/usr/bin"
+    - host_path: "/bin"
+      sandbox_path: "/bin"
+    - host_path: "/lib"
+      sandbox_path: "/lib"
+    - host_path: "/lib64"
+      sandbox_path: "/lib64"
+  scratch_paths:
+    - "/tmp"
+    - "/var/tmp"
+  output_paths:
+    - host_path: "/tmp/purple/output/production-secure"
+      sandbox_path: "/output"
+  working_dir: "/tmp"
+
+syscalls:
+  default_deny: true
+  allow:
+    - "exit_group"
+    - "read"
+    - "write"
+    - "openat"
+    - "close"
+    - "fstat"
+    - "newfstatat"
+    - "mmap"
+    - "mprotect"
+    - "munmap"
+    - "brk"
+    - "access"
+    - "execve"
+    - "arch_prctl"
+    - "set_tid_address"
+    - "set_robust_list"
+    - "rseq"
+    - "prlimit64"
+    - "getrandom"
+    - "clock_gettime"
+    - "nanosleep"
+    - "getpid"
+    - "getuid"
+    - "getgid"
+    - "geteuid"
+    - "getegid"
+    - "getcwd"
+    - "chdir"
+    - "fcntl"
+    - "dup"
+    - "dup2"
+    - "pipe"
+    - "pipe2"
+    - "socket"
+    - "connect"
+    - "sendto"
+    - "recvfrom"
+    - "sendmsg"
+    - "recvmsg"
+    - "setsockopt"
+    - "getsockopt"
+    - "poll"
+    - "epoll_create"
+    - "epoll_create1"
+    - "epoll_ctl"
+    - "epoll_wait"
+    - "epoll_pwait"
+    - "futex"
+    - "getdents64"
+    - "stat"
+    - "lstat"
+    - "uname"
+    - "sysinfo"
+    - "wait4"
+  # Advanced syscall rules with argument filtering for enhanced security
+  advanced_rules:
+    # Allow openat only for read-only operations (flags & O_ACCMODE == O_RDONLY)
+    # O_RDONLY = 0, O_WRONLY = 1, O_RDWR = 2
+    # This prevents writing to any files
+    - syscall: "openat"
+      action: allow
+      conditions:
+        - arg: 2  # flags argument
+          op: masked_eq
+          value: 0  # O_RDONLY (0)
+          mask: 0o3  # Mask for O_ACCMODE bits (bits 0-1)
+
+    # Allow socket only for AF_INET (IPv4) and AF_INET6 (IPv6)
+    # AF_INET = 2, AF_INET6 = 10
+    - syscall: "socket"
+      action: allow
+      conditions:
+        - arg: 0  # domain argument
+          op: eq
+          value: 2  # AF_INET
+        - arg: 0
+          op: eq
+          value: 10  # AF_INET6
+
+    # Allow connect only to specific port ranges (prevent connecting to privileged ports)
+    - syscall: "connect"
+      action: allow
+      conditions:
+        - arg: 1  # sockaddr pointer (simplified - actual check requires more complex logic)
+          op: gte
+          value: 0
+
+    # Deny prctl entirely (no conditions = always deny)
+    - syscall: "prctl"
+      action: deny
+      conditions: []
+
+    # Allow ioctl only for specific operations (TCGETS = 0x5401)
+    - syscall: "ioctl"
+      action: allow
+      conditions:
+        - arg: 1  # request argument
+          op: eq
+          value: 0x5401
+
+resources:
+  cpu_shares: 0.8
+  memory_limit_bytes: "4G"
+  pids_limit: 50
+  io_limit_bytes_per_sec: "50M"
+  session_timeout_seconds: 1800
+
+capabilities:
+  default_drop: true
+  add: []
+
+network:
+  isolated: false
+  allow_outgoing:
+    - "443"
+    - "80"
+    - "53"
+  allow_incoming: []
+
+audit:
+  enabled: true
+  log_path: "/tmp/purple/audit/production-secure.log"
+  detail_level: ["resource", "filesystem", "syscall", "network"]

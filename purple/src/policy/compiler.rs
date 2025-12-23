@@ -320,29 +320,46 @@ pub struct CompiledSyscallPolicy {
     /// Syscalls to explicitly deny when default_deny=false (allow-by-default mode)
     pub denied_syscall_numbers: BTreeSet<i64>,
     /// Advanced syscall rules with argument filtering.
-    /// These are stored separately and applied after basic allow/deny rules.
-    #[allow(dead_code)]
-    pub advanced_rules: Vec<()>,
+    /// These are applied after basic allow/deny rules for fine-grained control.
+    pub advanced_rules: Vec<CompiledAdvancedSyscallRule>,
 }
 
-// Advanced syscall rules are not yet implemented.
-// These structs are kept for future implementation but currently unused.
-/*
+/// Compiled advanced syscall rule with resolved syscall number.
 #[derive(Debug, Clone)]
 pub struct CompiledAdvancedSyscallRule {
     pub syscall_number: i64,
+    pub syscall_name: String,
     pub action: super::SyscallAction,
     pub conditions: Vec<CompiledSyscallCondition>,
 }
 
+/// Compiled syscall condition with resolved comparison operator.
 #[derive(Debug, Clone)]
 pub struct CompiledSyscallCondition {
-    pub arg_index: usize,
-    pub op: super::ConditionOp,
-    pub value: u64,
-    pub mask: Option<u64>,
+    pub arg_index: u32, // 0-5 for x86_64 syscall arguments
+    pub comparison: CompiledComparison,
 }
-*/
+
+/// Compiled comparison operation for efficient runtime evaluation.
+#[derive(Debug, Clone)]
+pub enum CompiledComparison {
+    /// Equal (==)
+    Equal(u64),
+    /// Not equal (!=)
+    NotEqual(u64),
+    /// Less than (<)
+    LessThan(u64),
+    /// Less than or equal (<=)
+    LessThanOrEqual(u64),
+    /// Greater than (>)
+    GreaterThan(u64),
+    /// Greater than or equal (>=)
+    GreaterThanOrEqual(u64),
+    /// Masked equal - (value & mask) == comparison
+    MaskedEqual { mask: u64, value: u64 },
+    /// Masked not equal - (value & mask) != comparison
+    MaskedNotEqual { mask: u64, value: u64 },
+}
 
 /// Compiled resource limits.
 #[derive(Debug, Clone, Default)]
@@ -479,15 +496,84 @@ impl Policy {
             }
         }
 
-        // Advanced syscall rules are not yet implemented
-        if !self.syscalls.advanced_rules.is_empty() {
-            return Err(
-                "Advanced syscall rules not yet supported. Use simple allow/deny lists instead."
-                    .to_string(),
+        // Process advanced syscall rules with argument filtering
+        let mut advanced_rules = Vec::new();
+        for rule in &self.syscalls.advanced_rules {
+            // Resolve syscall name to number
+            let syscall_num = match crate::sandbox::seccomp::get_syscall_number(&rule.syscall) {
+                Some(num) => num,
+                None => {
+                    return Err(format!(
+                        "Unknown syscall in advanced_rules: {}",
+                        rule.syscall
+                    ));
+                }
+            };
+
+            // Validate argument indices
+            for cond in &rule.conditions {
+                if cond.arg > 6 {
+                    return Err(format!(
+                        "Invalid argument index {} for syscall {} (max is 6)",
+                        cond.arg, rule.syscall
+                    ));
+                }
+            }
+
+            // Compile conditions to internal representation
+            let compiled_conditions: Vec<CompiledSyscallCondition> = rule
+                .conditions
+                .iter()
+                .map(|cond| {
+                    let comparison = match cond.op {
+                        super::ConditionOp::Equal => CompiledComparison::Equal(cond.value),
+                        super::ConditionOp::NotEqual => CompiledComparison::NotEqual(cond.value),
+                        super::ConditionOp::LessThan => CompiledComparison::LessThan(cond.value),
+                        super::ConditionOp::LessThanOrEqual => {
+                            CompiledComparison::LessThanOrEqual(cond.value)
+                        }
+                        super::ConditionOp::GreaterThan => {
+                            CompiledComparison::GreaterThan(cond.value)
+                        }
+                        super::ConditionOp::GreaterThanOrEqual => {
+                            CompiledComparison::GreaterThanOrEqual(cond.value)
+                        }
+                        super::ConditionOp::MaskedEqual => {
+                            let mask = cond.mask.unwrap_or(cond.value);
+                            CompiledComparison::MaskedEqual {
+                                mask,
+                                value: cond.value,
+                            }
+                        }
+                        super::ConditionOp::MaskedNotEqual => {
+                            let mask = cond.mask.unwrap_or(cond.value);
+                            CompiledComparison::MaskedNotEqual {
+                                mask,
+                                value: cond.value,
+                            }
+                        }
+                    };
+
+                    CompiledSyscallCondition {
+                        arg_index: cond.arg as u32,
+                        comparison,
+                    }
+                })
+                .collect();
+
+            advanced_rules.push(CompiledAdvancedSyscallRule {
+                syscall_number: syscall_num,
+                syscall_name: rule.syscall.clone(),
+                action: rule.action.clone(),
+                conditions: compiled_conditions,
+            });
+
+            log::debug!(
+                "Compiled advanced rule for syscall {} with {} conditions",
+                rule.syscall,
+                rule.conditions.len()
             );
         }
-
-        let advanced_rules = Vec::new(); // Empty vector since feature is disabled
 
         let compiled_syscalls = CompiledSyscallPolicy {
             default_deny: self.syscalls.default_deny,

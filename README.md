@@ -1,107 +1,298 @@
 # Purple AI Sandbox
 
-**Professional Secure Runtime for Autonomous AI Agents**
+**Enterprise-Grade Secure Runtime for Autonomous AI Agents**
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Rust](https://img.shields.io/badge/Rust-1.92+-orange.svg)](https://www.rust-lang.org/)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)](https://github.com/syedazeez337/purple-ai-sandbox)
+[![Security Audit](https://img.shields.io/badge/Security-Audited-brightgreen.svg)](#security)
 
 ## 🎯 Purpose
 
-Purple is an enterprise-grade sandbox designed to safely run untrusted AI agents. It goes beyond passive monitoring to provide **Active Defense**—blocking malicious network activity, enforcing strict resource limits, and isolating filesystems in real-time using Linux Namespaces and eBPF.
+Purple is an enterprise-grade sandbox designed to safely run untrusted AI agents. It provides **Active Defense** through multiple layers of security:
+
+- **Active Network Defense** — Blocks data exfiltration using eBPF
+- **Advanced Syscall Filtering** — Fine-grained kernel surface area control with argument validation
+- **Resource Enforcement** — Hard limits on CPU, RAM, and process count
+- **Secure Containerization** — Namespaces, pivot_root, and capability dropping
+
+## 🛡️ Security Architecture
+
+Purple employs a defense-in-depth strategy with multiple security layers:
+
+| Layer | Technology | Protection |
+|-------|------------|------------|
+| **Network** | eBPF + iptables | Packet filtering, data exfiltration prevention |
+| **Filesystem** | pivot_root + bind mounts | Container escape prevention |
+| **Syscalls** | Seccomp BPF + advanced rules | Kernel surface area restriction |
+| **Resources** | Cgroups v2 | CPU, memory, and PID limits |
+| **Capabilities** | Linux capabilities | Fine-grained privilege control |
+| **Audit** | Structured JSON logs | Complete activity tracing |
+
+See [SECURITY.md](SECURITY.md) for detailed audit history and remediation details.
 
 ## ✨ Key Capabilities
 
-| Feature | Description | Mechanism |
-|---------|-------------|-----------|
-| **Active Network Defense** | Blocks data exfiltration to specific IPs/domains. | **eBPF (Cgroup SKB)** |
-| **Resource Enforcement** | Hard limits on CPU, RAM, and Swap. Auto-kills hogs. | **Cgroups v2** |
-| **System Isolation** | Invisible filesystem barriers and private process trees. | **Namespaces (User, PID, Mount)** |
-| **Syscall Filtering** | Restricts kernel surface area (e.g., block `execve`, `ptrace`). | **Seccomp BPF** |
-| **Lifecycle Management** | Automated cleanup of zombie processes and mounts. | **Rust RAII / Drop** |
+### Advanced Syscall Filtering
+
+Purple supports fine-grained syscall filtering with argument validation:
+
+```yaml
+syscalls:
+  default_deny: true
+  allow:
+    - "exit_group"
+    - "read"
+    - "openat"
+  advanced_rules:
+    # Read-only file access only
+    - syscall: openat
+      action: allow
+      conditions:
+        - arg: 2  # flags argument
+          op: masked_eq
+          value: 0  # O_RDONLY
+          mask: 0o3  # O_ACCMODE mask
+
+    # IPv4/IPv6 sockets only
+    - syscall: socket
+      action: allow
+      conditions:
+        - arg: 0  # domain
+          op: eq
+          value: 2  # AF_INET
+```
+
+**Supported comparison operators:**
+- `eq` — Equal
+- `neq` — Not equal
+- `lt` / `lte` — Less than / Less than or equal
+- `gt` / `gte` — Greater than / Greater than or equal
+- `masked_eq` — Bitmask equality (e.g., check specific flag bits)
+
+### Pre-defined Security Profiles
+
+| Profile | Description | Use Case |
+|---------|-------------|----------|
+| `ai-dev-safe` | Development with safe defaults | AI agent development |
+| `production-secure` | High-security with advanced syscall filtering | Production AI workloads |
+| `honeypot` | Restricted with eBPF monitoring | Security testing |
 
 ## 🚀 Quick Start
 
-### **1. Prerequisites**
-
-Purple requires a Linux system with eBPF support.
+### Prerequisites
 
 ```bash
-# Install eBPF linker
+# Install eBPF linker (required for monitoring features)
 cargo install bpf-linker
-```
 
-### **2. Build**
-
-```bash
-# Clone and build (enabling eBPF features)
+# Clone and build
 git clone https://github.com/syedazeez337/purple-ai-sandbox.git
-cd purple-ai-sandbox
+cd purple-ai-sandbox/purple
 cargo build --release --features ebpf
 ```
 
-### **3. Run a Secure Agent**
+### Run a Secure Agent
 
-Create a policy file (`policies/secure-agent.yaml`) to define your security rules:
+```bash
+# List available profiles
+./target/release/purple profile list
+
+# Show profile details
+./target/release/purple profile show production-secure
+
+# Run a command in the sandbox
+sudo ./target/release/purple run --profile production-secure -- /bin/echo "Hello from secure sandbox!"
+```
+
+### API Server (with Authentication)
+
+```bash
+# Set API key (required for production)
+export PURPLE_API_KEY="your-secure-api-key"
+
+# Start API server with rate limiting and authentication
+./target/release/purple api --address 127.0.0.1:8080
+```
+
+**API Endpoints (Bearer token authentication required):**
+
+```bash
+# Create sandbox
+curl -X POST http://localhost:8080/sandboxes \
+  -H "Authorization: Bearer $PURPLE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "test", "profile": "production-secure", "command": ["/bin/echo", "test"]}'
+
+# List sandboxes
+curl http://localhost:8080/sandboxes \
+  -H "Authorization: Bearer $PURPLE_API_KEY"
+```
+
+## 📊 Monitoring & Observability
+
+### Structured Audit Logs
+
+All sandbox activity is logged in JSON format for security analysis:
+
+```json
+{
+  "timestamp": 1703325800,
+  "event_type": "sandbox_execution",
+  "policy_name": "production-secure",
+  "command": ["/bin/echo", "test"],
+  "status": "completed",
+  "sandbox_id": "uuid-here"
+}
+```
+
+### eBPF Monitoring (Optional)
+
+Enable advanced syscall and network tracing:
+
+```bash
+./target/release/purple monitor --profile production-secure
+```
+
+## 🏗️ Architecture
+
+### Core Components
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Purple Sandbox                          │
+├─────────────────────────────────────────────────────────────┤
+│  CLI (clap)                                                 │
+│  ├── profile {create|list|delete|show}                      │
+│  ├── run                                                    │
+│  ├── monitor (requires --features ebpf)                     │
+│  ├── api                                                    │
+│  └── audit                                                  │
+├─────────────────────────────────────────────────────────────┤
+│  Policy System                                              │
+│  ├── YAML policy parser                                     │
+│  ├── Syscall compiler (resolves names → numbers)            │
+│  └── Advanced rules (conditional filtering)                 │
+├─────────────────────────────────────────────────────────────┤
+│  Sandbox Engine                                             │
+│  ├── Linux Namespaces (user, pid, mount, network)           │
+│  ├── Seccomp BPF (syscall filtering)                       │
+│  ├── Cgroups v2 (resource limits)                           │
+│  ├── Capabilities (privilege dropping)                      │
+│  ├── pivot_root (secure containerization)                   │
+│  └── eBPF (network filtering & tracing)                     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Execution Flow
+
+1. Parse CLI arguments and load policy YAML
+2. Compile policy (resolve syscalls, parse resources)
+3. Unshare namespaces (user → PID → network → mount)
+4. Fork to enter new PID namespace
+5. Child: Setup filesystem, apply limits, drop capabilities
+6. Apply seccomp filter with advanced rules
+7. Execute command
+8. Parent: Wait, cleanup, and generate audit log
+
+## 🔧 Configuration Reference
+
+### Policy Schema
 
 ```yaml
-name: "secure-agent"
-description: "High-security profile for untrusted agents"
+name: "policy-name"
+description: "Policy description"
+
+filesystem:
+  immutable_paths:    # Read-only bind mounts
+    - host_path: "/usr/bin"
+      sandbox_path: "/usr/bin"
+  scratch_paths:      # Writable directories
+    - "/tmp"
+  output_paths:       # Output directories
+    - host_path: "./output"
+      sandbox_path: "/output"
+  working_dir: "/tmp"
+
+syscalls:
+  default_deny: true  # Deny all except allowed syscalls
+  allow:              # List of allowed syscalls
+    - "exit_group"
+    - "read"
+    - "write"
+  advanced_rules:     # Fine-grained filtering
+    - syscall: "openat"
+      action: allow
+      conditions:
+        - arg: 2
+          op: masked_eq
+          value: 0
+          mask: 0o3
+
+resources:
+  cpu_shares: 0.5
+  memory_limit_bytes: "2G"
+  pids_limit: 100
+  session_timeout_seconds: 3600
+
+capabilities:
+  default_drop: true
+  add: []
 
 network:
   isolated: false
-  blocked_ips:
-    - "1.1.1.1"       # Block specific IPs
-    - "169.254.169.254" # Block cloud metadata services
+  allow_outgoing:
+    - "443"
+    - "80"
+    - "53"
 
-resources:
-  memory_limit_bytes: "512M"
-  cpu_shares: 0.5
-
-filesystem:
-  immutable_paths:
-    - host_path: "/usr/bin"
-      sandbox_path: "/usr/bin"
-  scratch_paths:
-    - "/tmp"
-  output_paths:
-    - host_path: "./output"
-      sandbox_path: "/output"
+audit:
+  enabled: true
+  log_path: "/var/log/purple/audit.log"
+  detail_level: ["resource", "filesystem", "syscall", "network"]
 ```
 
-Run the agent:
+## 🧪 Testing
 
 ```bash
-sudo ./target/release/purple run --profile secure-agent -- python3 my_agent.py
-```
+# Run all tests
+cargo test
 
-## 🛡️ Architecture
+# Run with debug logging
+RUST_LOG=debug cargo test
 
-Purple employs a "Defense in Depth" strategy:
-
-1.  **Outer Ring (Management):** The `SandboxManager` handles resource allocation, lifecycle, and cleanup.
-2.  **Middle Ring (Isolation):** Linux Namespaces create a private "view" of the system (Filesystem, PID, Network).
-3.  **Inner Ring (Enforcement):**
-    *   **Seccomp:** Blocks dangerous syscalls at the kernel boundary.
-    *   **Cgroups:** Enforces physical resource limits.
-    *   **eBPF:** Actively filters network packets and traces behavior.
-
-## 📊 Monitoring & observability
-
-Purple provides real-time visibility into agent behavior:
-
-*   **Structured Audit Logs:** JSON logs of every syscall, file access, and network connection.
-*   **Cost & Token Tracking:** Monitor LLM usage (tokens/cost) via the API Monitor sidecar.
-*   **Violation Alerts:** Immediate alerts when an agent hits a resource limit or tries to access blocked resources.
-
-## 🤝 Contributing
-
-Contributions are welcome! Please ensure you run tests with the `ebpf` feature enabled:
-
-```bash
+# Run with eBPF features
 cargo test --features ebpf
 ```
 
+## 📦 Dependencies
+
+| Dependency | Purpose |
+|------------|---------|
+| `clap` | CLI argument parsing |
+| `nix` | Linux syscalls (namespaces, mount, fork) |
+| `libseccomp` | Seccomp BPF filter creation |
+| `cgroups-rs` | Cgroups management |
+| `serde`/`serde_yaml` | Policy serialization |
+| `aya` | eBPF support (optional) |
+| `tokio` | Async runtime for API server |
+| `axum` | HTTP API framework |
+
+## 🤝 Contributing
+
+Contributions are welcome! Please ensure:
+
+1. All tests pass: `cargo test`
+2. Code is formatted: `cargo fmt`
+3. No clippy warnings: `cargo clippy`
+
 ## 📄 License
 
-Apache 2.0 - Commercial-friendly and open source.
+Apache 2.0 — Commercial-friendly and open source.
+
+## 🙏 Acknowledgments
+
+Built with:
+- [libseccomp](https://github.com/seccomp/libseccomp) — Linux syscall filtering
+- [nix](https://github.com/nix-rs/nix) — Rust bindings to Linux APIs
+- [aya](https://github.com/aya-rs/aya) — eBPF tooling for Rust

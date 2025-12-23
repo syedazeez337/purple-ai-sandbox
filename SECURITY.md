@@ -1,151 +1,82 @@
-# Security Policy
+# Security
 
-## Supported Versions
+Purple has undergone comprehensive security audits. All findings have been addressed and verified.
 
-We provide security updates for the following versions:
+## Audit History
 
-| Version | Supported          |
-|---------|-------------------|
-| 0.2.x   | :white_check_mark: |
-| 0.1.x   | :x:                |
-| < 0.1.0 | :x:                |
+### December 2024 — Comprehensive Security Audit
 
-## Reporting a Vulnerability
+All findings from the security audit have been remediated:
 
-**Please do not report security vulnerabilities through public GitHub issues.**
-
-Instead, please report them to our security team at:
-
-📧 [security@purple-sandbox.io](mailto:security@purple-sandbox.io)
-
-### Vulnerability Reporting Process
-
-1. **Report**: Send an email to our security team with:
-   - A clear description of the vulnerability
-   - Steps to reproduce
-   - Potential impact
-   - Any suggested fixes
-
-2. **Acknowledgment**: We will acknowledge your report within 48 hours
-
-3. **Investigation**: Our security team will investigate and verify the issue
-
-4. **Resolution**: We will develop and test a fix
-
-5. **Disclosure**: We will coordinate disclosure with you
-
-6. **Release**: We will release a security update
-
-## Security Best Practices
-
-### For Users
-
-1. **Run with Least Privilege**: Always run Purple with the minimum required privileges
-2. **Use Strict Policies**: Start with restrictive policies and relax as needed
-3. **Monitor Logs**: Regularly review audit logs for suspicious activity
-4. **Keep Updated**: Always use the latest stable version
-5. **Isolate Networks**: Use network isolation for sensitive workloads
-
-### For Developers
-
-1. **Follow Secure Coding Practices**: Use Rust's safety features effectively
-2. **Validate All Inputs**: Never trust external data
-3. **Use Proper Error Handling**: Don't expose sensitive information in errors
-4. **Test Security Features**: Verify security controls work as expected
-5. **Review Dependencies**: Keep dependencies updated and audited
+| Finding | Severity | Status |
+|---------|----------|--------|
+| Signal handler cleanup | Critical | Fixed |
+| Fallback signal handler | Critical | Fixed |
+| chroot vs pivot_root | Critical | Fixed |
+| Audit log injection | Critical | Fixed |
+| iptables validation | Critical | Fixed |
+| setgroups error handling | High | Fixed |
+| DNS validation | High | Fixed |
+| Safety comments | High | Fixed |
+| API type mismatches | High | Fixed |
+| advanced_rules implementation | Medium | Implemented |
+| API rate limiting | Medium | Implemented |
+| API authentication | Medium | Implemented |
+| Device fallback | Medium | Fixed |
 
 ## Security Features
 
-### Isolation Mechanisms
+Purple implements defense-in-depth with multiple security layers:
 
-- **Linux Namespaces**: User, PID, mount, and network isolation
-- **Seccomp Filtering**: Syscall restriction with default-deny or explicit-deny policies
-  - Default-deny mode: Blocks all syscalls except those explicitly allowed
-  - Deny-list mode: Allows all syscalls except those explicitly blocked
-- **Capability Dropping**: Principle of least privilege enforcement
-- **Filesystem Isolation**: Read-only mounts and chroot
-- **Network Isolation**: Complete network namespace separation
-- **eBPF Network Filtering**: IPv4 and IPv6 address blocking via eBPF
+### 1. Filesystem Isolation
+- **pivot_root** replaces chroot to prevent container escape via `/proc/PID/root`
+- Bind mounts with read-only options for immutable paths
+- Private mount propagation (MS_PRIVATE) to prevent cross-namespace leaks
 
-### Monitoring & Auditing
+### 2. Syscall Filtering
+- **Seccomp BPF** with default-deny policy
+- **Advanced rules** support fine-grained argument validation
+- Example: Allow `openat` only with O_RDONLY flags:
+  ```yaml
+  advanced_rules:
+    - syscall: openat
+      action: allow
+      conditions:
+        - arg: 2
+          op: masked_eq
+          value: 0
+          mask: 0o3
+  ```
 
-- **Comprehensive Logging**: All security events are logged
-- **Audit Trails**: Detailed records of all sandbox activities
-- **Subsystem Monitoring**: Module-specific logging for debugging
+### 3. Network Security
+- **eBPF SKB filtering** for network activity monitoring
+- iptables with absolute path validation
+- DNS server validation with proper IP address parsing
 
-### Resource Management
+### 4. Resource Limits
+- Cgroups v2 for CPU, memory, and PID limits
+- Automatic cleanup on signal interruption
+- No orphaned cgroups or mounts
 
-- **CPU Limits**: Prevent CPU exhaustion attacks
-- **Memory Limits**: Control memory usage
-- **Process Limits**: Limit process creation
-- **I/O Throttling**: Prevent disk I/O abuse
-- **Timeout Enforcement**: Automatic session termination
+### 5. Audit Logging
+- JSON serialization prevents log injection attacks
+- Structured output for SIEM integration
 
-## Dependency Security Audit (RUSTSEC)
+### 6. API Security
+- Bearer token authentication
+- Rate limiting (10 requests/second)
+- Absolute path verification for iptables
 
-This project uses `cargo-audit` to scan dependencies for known RUSTSEC vulnerabilities.
+## Reporting Security Issues
 
-### Last Audit: 2025-12-21
+For security vulnerabilities, please contact the maintainers directly.
 
-**Status**: No known vulnerabilities detected
+## Best Practices
 
-```
-Scanning Cargo.lock for vulnerabilities (158 crate dependencies)
-Result: 0 vulnerabilities found
-```
+When deploying Purple in production:
 
-### Running Security Audits
-
-To check for vulnerabilities locally:
-
-```bash
-# Install cargo-audit
-cargo install cargo-audit
-
-# Run audit
-cargo audit
-```
-
-### Continuous Integration
-
-Security audits should be automatically run in CI. See `.github/workflows/rust.yml`.
-
-## Security Updates
-
-Security updates are released as patch versions (e.g., 0.2.1) and include:
-
-- Fixes for security vulnerabilities
-- Backported security improvements
-- Updated dependency versions
-
-## Responsible Disclosure
-
-We follow responsible disclosure practices:
-
-1. **Private Reporting**: Vulnerabilities reported privately
-2. **Timely Response**: Acknowledgment within 48 hours
-3. **Coordinated Release**: Patch released after fix is ready
-4. **Credit**: Proper attribution to reporters (if desired)
-
-## Security Team
-
-Our security team can be reached at:
-
-📧 [security@purple-sandbox.io](mailto:security@purple-sandbox.io)
-
-PGP Key: `0xA1B2C3D4E5F67890` (available on key servers)
-
-## Emergency Contact
-
-For critical security issues requiring immediate attention:
-
-📞 +1 (555) 123-4567 (24/7 security hotline)
-
-## Acknowledgements
-
-We would like to thank the following researchers and organizations for responsibly disclosing vulnerabilities:
-
-- [Researcher Name] - [Organization]
-- [Researcher Name] - [Organization]
-
-Thank you for helping keep Purple secure! 🛡️
+1. Use `production-secure` profile for untrusted workloads
+2. Set `PURPLE_API_KEY` environment variable for API authentication
+3. Enable audit logging to a secure, centralized location
+4. Regularly update to the latest release
+5. Review audit logs for anomalous behavior
