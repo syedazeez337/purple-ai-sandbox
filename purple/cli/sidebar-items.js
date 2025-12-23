@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["Commands","ProfileCommands"],"struct":["AuditArgs","Cli","MonitorArgs","ReplayArgs","RunArgs"]};
+window.SIDEBAR_ITEMS = {"enum":["Commands","ProfileCommands","SandboxAction"],"struct":["AuditArgs","Cli","MonitorArgs","ReplayArgs","RunArgs"]};
