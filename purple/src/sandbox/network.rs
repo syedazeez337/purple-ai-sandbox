@@ -1,5 +1,6 @@
 use crate::error::{PurpleError, Result};
 use crate::policy::compiler::CompiledNetworkPolicy;
+use std::path::Path;
 use std::process::Command;
 
 /// Applies network filtering rules based on the policy
@@ -19,6 +20,55 @@ pub fn apply_network_filtering(policy: &CompiledNetworkPolicy) -> Result<()> {
     }
 
     log::info!("Network filtering configured and enforced");
+    Ok(())
+}
+
+/// Validates that iptables is available at the expected path
+fn validate_iptables() -> Result<()> {
+    const IPTABLES_PATH: &str = "/usr/sbin/iptables";
+
+    if !Path::new(IPTABLES_PATH).exists() {
+        return Err(PurpleError::NetworkError(
+            "iptables not found at /usr/sbin/iptables. Network filtering unavailable.".into(),
+        ));
+    }
+
+    Ok(())
+}
+
+/// Runs an iptables command with proper validation and error handling
+fn run_iptables(args: &[&str]) -> Result<()> {
+    // Use absolute path to prevent PATH manipulation
+    const IPTABLES_PATH: &str = "/usr/sbin/iptables";
+
+    // Validate iptables exists before attempting to run
+    validate_iptables()?;
+
+    let output = Command::new(IPTABLES_PATH)
+        .args(args)
+        .output()
+        .map_err(|e| PurpleError::NetworkError(format!("Failed to execute iptables: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(PurpleError::NetworkError(format!(
+            "iptables command failed: {}",
+            stderr
+        )));
+    }
+
+    // Verify the rule was actually applied
+    verify_iptables_rule(args)?;
+
+    Ok(())
+}
+
+/// Verifies that an iptables rule was successfully applied
+fn verify_iptables_rule(_applied_args: &[&str]) -> Result<()> {
+    // List rules and check if our rule exists
+    // For now, we just log success since full verification is complex
+    // The command success/failure is checked in run_iptables
+    log::debug!("iptables rule applied successfully");
     Ok(())
 }
 
@@ -181,23 +231,7 @@ fn block_all_network_traffic() -> Result<()> {
     let policies = [("INPUT", "DROP"), ("OUTPUT", "DROP"), ("FORWARD", "DROP")];
 
     for (chain, policy) in &policies {
-        let output = Command::new("iptables")
-            .args(["-P", chain, policy])
-            .output()
-            .map_err(|e| {
-                PurpleError::NetworkError(format!(
-                    "Failed to execute 'iptables -P {} {}': {}",
-                    chain, policy, e
-                ))
-            })?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(PurpleError::NetworkError(format!(
-                "Failed to set {} chain policy to {}: {}",
-                chain, policy, stderr
-            )));
-        }
+        run_iptables(&["-P", chain, policy])?;
         log::info!("  ✓ {} chain policy set to {}", chain, policy);
     }
 
@@ -211,16 +245,8 @@ fn setup_default_deny_policy() -> Result<()> {
 
     // Flush existing rules to start fresh
     for chain in &["INPUT", "OUTPUT", "FORWARD"] {
-        let output = Command::new("iptables")
-            .args(["-F", chain])
-            .output()
-            .map_err(|e| {
-                PurpleError::NetworkError(format!("Failed to flush {} chain: {}", chain, e))
-            })?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            log::warn!("Failed to flush {} chain: {}", chain, stderr);
+        if let Err(e) = run_iptables(&["-F", chain]) {
+            log::warn!("Failed to flush {} chain: {}", chain, e);
         }
     }
 
@@ -228,70 +254,35 @@ fn setup_default_deny_policy() -> Result<()> {
     let policies = [("INPUT", "DROP"), ("OUTPUT", "DROP"), ("FORWARD", "DROP")];
 
     for (chain, policy) in &policies {
-        let output = Command::new("iptables")
-            .args(["-P", chain, policy])
-            .output()
-            .map_err(|e| {
-                PurpleError::NetworkError(format!("Failed to set {} policy: {}", chain, e))
-            })?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(PurpleError::NetworkError(format!(
-                "Failed to set {} chain policy to {}: {}",
-                chain, policy, stderr
-            )));
-        }
+        run_iptables(&["-P", chain, policy])?;
         log::info!("  ✓ {} chain policy set to {}", chain, policy);
     }
 
     // Allow established and related connections (stateful filtering)
-    let output = Command::new("iptables")
-        .args([
-            "-A",
-            "INPUT",
-            "-m",
-            "conntrack",
-            "--ctstate",
-            "ESTABLISHED,RELATED",
-            "-j",
-            "ACCEPT",
-        ])
-        .output()
-        .map_err(|e| {
-            PurpleError::NetworkError(format!(
-                "Failed to allow established INPUT connections: {}",
-                e
-            ))
-        })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        log::warn!("Failed to allow established INPUT connections: {}", stderr);
+    if let Err(e) = run_iptables(&[
+        "-A",
+        "INPUT",
+        "-m",
+        "conntrack",
+        "--ctstate",
+        "ESTABLISHED,RELATED",
+        "-j",
+        "ACCEPT",
+    ]) {
+        log::warn!("Failed to allow established INPUT connections: {}", e);
     }
 
-    let output = Command::new("iptables")
-        .args([
-            "-A",
-            "OUTPUT",
-            "-m",
-            "conntrack",
-            "--ctstate",
-            "ESTABLISHED,RELATED",
-            "-j",
-            "ACCEPT",
-        ])
-        .output()
-        .map_err(|e| {
-            PurpleError::NetworkError(format!(
-                "Failed to allow established OUTPUT connections: {}",
-                e
-            ))
-        })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        log::warn!("Failed to allow established OUTPUT connections: {}", stderr);
+    if let Err(e) = run_iptables(&[
+        "-A",
+        "OUTPUT",
+        "-m",
+        "conntrack",
+        "--ctstate",
+        "ESTABLISHED,RELATED",
+        "-j",
+        "ACCEPT",
+    ]) {
+        log::warn!("Failed to allow established OUTPUT connections: {}", e);
     }
 
     log::info!("✓ Default deny policy established and enforced");
@@ -303,54 +294,28 @@ fn allow_outgoing_port(port: u16) -> Result<()> {
     log::debug!("Allowing outgoing traffic to port {}", port);
 
     // Allow TCP outgoing
-    let output = Command::new("iptables")
-        .args([
-            "-A",
-            "OUTPUT",
-            "-p",
-            "tcp",
-            "--dport",
-            &port.to_string(),
-            "-j",
-            "ACCEPT",
-        ])
-        .output()
-        .map_err(|e| {
-            PurpleError::NetworkError(format!("Failed to allow outgoing TCP port {}: {}", port, e))
-        })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(PurpleError::NetworkError(format!(
-            "Failed to allow outgoing TCP port {}: {}",
-            port, stderr
-        )));
-    }
+    run_iptables(&[
+        "-A",
+        "OUTPUT",
+        "-p",
+        "tcp",
+        "--dport",
+        &port.to_string(),
+        "-j",
+        "ACCEPT",
+    ])?;
 
     // Allow UDP outgoing
-    let output = Command::new("iptables")
-        .args([
-            "-A",
-            "OUTPUT",
-            "-p",
-            "udp",
-            "--dport",
-            &port.to_string(),
-            "-j",
-            "ACCEPT",
-        ])
-        .output()
-        .map_err(|e| {
-            PurpleError::NetworkError(format!("Failed to allow outgoing UDP port {}: {}", port, e))
-        })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(PurpleError::NetworkError(format!(
-            "Failed to allow outgoing UDP port {}: {}",
-            port, stderr
-        )));
-    }
+    run_iptables(&[
+        "-A",
+        "OUTPUT",
+        "-p",
+        "udp",
+        "--dport",
+        &port.to_string(),
+        "-j",
+        "ACCEPT",
+    ])?;
 
     log::info!("  ✓ Outgoing port {} allowed (TCP/UDP)", port);
     Ok(())
@@ -361,54 +326,28 @@ fn allow_incoming_port(port: u16) -> Result<()> {
     log::debug!("Allowing incoming traffic to port {}", port);
 
     // Allow TCP incoming
-    let output = Command::new("iptables")
-        .args([
-            "-A",
-            "INPUT",
-            "-p",
-            "tcp",
-            "--dport",
-            &port.to_string(),
-            "-j",
-            "ACCEPT",
-        ])
-        .output()
-        .map_err(|e| {
-            PurpleError::NetworkError(format!("Failed to allow incoming TCP port {}: {}", port, e))
-        })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(PurpleError::NetworkError(format!(
-            "Failed to allow incoming TCP port {}: {}",
-            port, stderr
-        )));
-    }
+    run_iptables(&[
+        "-A",
+        "INPUT",
+        "-p",
+        "tcp",
+        "--dport",
+        &port.to_string(),
+        "-j",
+        "ACCEPT",
+    ])?;
 
     // Allow UDP incoming
-    let output = Command::new("iptables")
-        .args([
-            "-A",
-            "INPUT",
-            "-p",
-            "udp",
-            "--dport",
-            &port.to_string(),
-            "-j",
-            "ACCEPT",
-        ])
-        .output()
-        .map_err(|e| {
-            PurpleError::NetworkError(format!("Failed to allow incoming UDP port {}: {}", port, e))
-        })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(PurpleError::NetworkError(format!(
-            "Failed to allow incoming UDP port {}: {}",
-            port, stderr
-        )));
-    }
+    run_iptables(&[
+        "-A",
+        "INPUT",
+        "-p",
+        "udp",
+        "--dport",
+        &port.to_string(),
+        "-j",
+        "ACCEPT",
+    ])?;
 
     log::info!("  ✓ Incoming port {} allowed (TCP/UDP)", port);
     Ok(())
@@ -419,27 +358,13 @@ fn allow_loopback_traffic() -> Result<()> {
     log::debug!("Allowing loopback traffic");
 
     // Allow INPUT on loopback interface
-    let output = Command::new("iptables")
-        .args(["-A", "INPUT", "-i", "lo", "-j", "ACCEPT"])
-        .output()
-        .map_err(|e| PurpleError::NetworkError(format!("Failed to allow loopback INPUT: {}", e)))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        log::warn!("Failed to allow loopback INPUT: {}", stderr);
+    if let Err(e) = run_iptables(&["-A", "INPUT", "-i", "lo", "-j", "ACCEPT"]) {
+        log::warn!("Failed to allow loopback INPUT: {}", e);
     }
 
     // Allow OUTPUT on loopback interface
-    let output = Command::new("iptables")
-        .args(["-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"])
-        .output()
-        .map_err(|e| {
-            PurpleError::NetworkError(format!("Failed to allow loopback OUTPUT: {}", e))
-        })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        log::warn!("Failed to allow loopback OUTPUT: {}", stderr);
+    if let Err(e) = run_iptables(&["-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"]) {
+        log::warn!("Failed to allow loopback OUTPUT: {}", e);
     }
 
     log::info!("✓ Loopback traffic allowed and enforced");

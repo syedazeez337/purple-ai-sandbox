@@ -434,6 +434,8 @@ impl CgroupManager {
             {
                 log::debug!("Sending SIGTERM to process {} in cgroup", pid);
                 // Use SIGTERM first for graceful shutdown
+                // SAFETY: libc::kill is safe to call with any PID - returns -1 on error.
+                // The PID was validated to be > 0 and parsed from cgroup.procs.
                 unsafe {
                     libc::kill(pid, libc::SIGTERM);
                 }
@@ -466,6 +468,9 @@ impl CgroupManager {
                 && pid > 0
             {
                 log::debug!("Sending SIGKILL to process {} in cgroup", pid);
+                // SAFETY: libc::kill is safe to call with any PID - returns -1 on error.
+                // The PID was validated to be > 0 and parsed from cgroup.procs.
+                // SIGKILL is used for force cleanup after graceful shutdown failed.
                 unsafe {
                     libc::kill(pid, libc::SIGKILL);
                 }

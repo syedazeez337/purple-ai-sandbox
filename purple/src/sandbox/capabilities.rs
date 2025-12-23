@@ -54,6 +54,9 @@ fn prctl_set_no_new_privs() -> Result<()> {
     // PR_SET_NO_NEW_PRIVS = 38
     const PR_SET_NO_NEW_PRIVS: libc::c_int = 38;
 
+    // SAFETY: prctl with PR_SET_NO_NEW_PRIVS is a well-defined operation.
+    // The arguments are: PR_SET_NO_NEW_PRIVS (38), value (1), and three unused args (0).
+    // This sets the no_new_privs bit to prevent privilege escalation via setuid/setgid.
     let result = unsafe { libc::prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
     if result != 0 {
         return Err(PurpleError::CapabilityError(format!(

@@ -96,12 +96,14 @@ pub enum SyscallAction {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SyscallCondition {
     /// Argument index (0-based) to check.
+    /// For x86_64: 0=rax, 1=rdi, 2=rsi, 3=rdx, 4=r10, 5=r8, 6=r9
     pub arg: usize,
     /// Comparison operation to perform.
     pub op: ConditionOp,
     /// Value to compare against.
     pub value: u64,
-    /// Optional bitmask for masked comparisons.
+    /// Optional bitmask for masked comparisons (used with masked_eq).
+    /// The argument value is ANDed with this mask before comparison.
     #[serde(default)]
     pub mask: Option<u64>,
 }
@@ -109,16 +111,30 @@ pub struct SyscallCondition {
 /// Comparison operation for syscall argument conditions.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ConditionOp {
+    /// Equal (==)
     #[serde(rename = "eq")]
     Equal,
+    /// Not equal (!=)
     #[serde(rename = "neq")]
     NotEqual,
+    /// Less than (<)
     #[serde(rename = "lt")]
     LessThan,
+    /// Less than or equal (<=)
+    #[serde(rename = "lte")]
+    LessThanOrEqual,
+    /// Greater than (>)
     #[serde(rename = "gt")]
     GreaterThan,
+    /// Greater than or equal (>=)
+    #[serde(rename = "gte")]
+    GreaterThanOrEqual,
+    /// Masked equal - value AND mask must equal comparison value
     #[serde(rename = "masked_eq")]
     MaskedEqual,
+    /// Masked not equal - value AND mask must not equal comparison value
+    #[serde(rename = "masked_neq")]
+    MaskedNotEqual,
 }
 
 /// Defines resource limits for the sandbox.

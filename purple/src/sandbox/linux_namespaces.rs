@@ -50,14 +50,21 @@ pub fn unshare_user_namespace() -> Result<(Uid, Gid), String> {
         Err(e) => {
             // In some container environments (like GitHub Actions runners or Docker with certain profiles),
             // opening setgroups might fail with EPERM even after unshare.
-            // We log a warning and proceed, hoping the environment is already configured correctly
-            // or that the kernel allows writing gid_map without explicit setgroups deny in this context.
+            // Check if setgroups is already denied before proceeding
             if e.kind() == std::io::ErrorKind::PermissionDenied {
-                log::warn!(
-                    "Could not open {}: {}. Proceeding with caution.",
-                    setgroups_path.display(),
-                    e
-                );
+                // Verify setgroups is already denied by reading current value
+                let current = fs::read_to_string(&setgroups_path).unwrap_or_default();
+                if current.trim() == "deny" {
+                    log::info!("setgroups already denied");
+                } else {
+                    return Err(format!(
+                        "Cannot write to {} and it's not already denied. Current value: '{}'. \
+                         This is a security requirement. Error: {}",
+                        setgroups_path.display(),
+                        current.trim(),
+                        e
+                    ));
+                }
             } else {
                 return Err(format!(
                     "Failed to open {}: {}",

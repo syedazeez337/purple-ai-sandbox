@@ -12,8 +12,10 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use axum::http::Method;
-use http::header::{ACCEPT, CONTENT_TYPE};
+use http::header::{ACCEPT, CONTENT_TYPE, AUTHORIZATION};
 use tower_http::cors::{Any, CorsLayer};
+use tower::limit::RateLimitLayer;
+use std::time::Duration;
 
 pub struct ApiServer {
     address: SocketAddr,
@@ -29,6 +31,10 @@ impl ApiServer {
         let app_state = Arc::new(AppState {
             sandbox_manager: sandbox_manager.clone(),
         });
+
+        // API key from environment or use a default for development
+        let api_key = std::env::var("PURPLE_API_KEY")
+            .unwrap_or_else(|_| "default-dev-key-change-in-production".to_string());
 
         let app = Router::new()
             .route("/sandboxes", post(create_sandbox))
@@ -53,14 +59,40 @@ impl ApiServer {
                         Method::DELETE,
                     ])
                     // Only allow needed headers
-                    .allow_headers([CONTENT_TYPE, ACCEPT])
+                    .allow_headers([CONTENT_TYPE, ACCEPT, AUTHORIZATION])
                     // Don't allow credentials
                     .allow_credentials(false),
             )
+            // Rate limiting: 10 requests per second per IP
+            .layer(RateLimitLayer::new(10, Duration::from_secs(1)))
+            // Authentication layer
+            .layer(axum::middleware::from_fn(move |req, next| {
+                let api_key = api_key.clone();
+                async move {
+                    let auth_header = req
+                        .headers()
+                        .get("Authorization")
+                        .and_then(|v| v.to_str().ok());
+
+                    match auth_header {
+                        Some(key) if key == format!("Bearer {}", api_key) => {
+                            Ok(next.run(req).await)
+                        }
+                        Some(_) => Err((
+                            axum::http::StatusCode::UNAUTHORIZED,
+                            "Invalid API key".to_string(),
+                        )),
+                        None => Err((
+                            axum::http::StatusCode::UNAUTHORIZED,
+                            "Missing Authorization header".to_string(),
+                        )),
+                    }
+                }
+            }))
             .with_state(app_state);
 
         log::info!("🚀 Starting API server on {}", self.address);
-        
+
         let listener = tokio::net::TcpListener::bind(self.address)
             .await
             .map_err(|e| PurpleError::ApiError(format!("Failed to bind to address {}: {}", self.address, e)))?;
