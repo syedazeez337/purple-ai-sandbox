@@ -1,4 +1,5 @@
 mod ai;
+// mod api; // API module disabled - requires more implementation work
 mod cli;
 mod error;
 mod policy;
@@ -15,6 +16,57 @@ use error::PurpleError;
 use log::LevelFilter;
 use logging::init_logging;
 use sandbox::{Sandbox, manager::SandboxManager};
+
+/// Validates a profile name for security
+/// Returns Ok(()) if valid, or an error message if invalid
+fn validate_profile_name(name: &str) -> Result<(), String> {
+    // Check for empty name
+    if name.trim().is_empty() {
+        return Err("Profile name cannot be empty".to_string());
+    }
+
+    // Check for minimum length
+    if name.len() < 2 {
+        return Err("Profile name must be at least 2 characters".to_string());
+    }
+
+    // Check for maximum length
+    const MAX_NAME_LENGTH: usize = 64;
+    if name.len() > MAX_NAME_LENGTH {
+        return Err(format!(
+            "Profile name exceeds maximum length of {} characters",
+            MAX_NAME_LENGTH
+        ));
+    }
+
+    // Check for path traversal patterns
+    if name.contains("..") || name.contains('/') || name.contains('\\') {
+        return Err("Profile name contains invalid path characters (/, \\, ..)".to_string());
+    }
+
+    // Check for shell metacharacters
+    let shell_chars = [
+        ';', '&', '|', '$', '`', '(', ')', '{', '}', '[', ']', '<', '>', '?', '*', '!', '\'', '"',
+        '\n', '\r',
+    ];
+    for c in shell_chars {
+        if name.contains(c) {
+            return Err(format!("Profile name contains invalid character: '{}'", c));
+        }
+    }
+
+    // Check for leading/trailing hyphens or underscores (cosmetic, not security)
+    let trimmed = name.trim();
+    if trimmed.starts_with('-')
+        || trimmed.starts_with('_')
+        || trimmed.ends_with('-')
+        || trimmed.ends_with('_')
+    {
+        return Err("Profile name should not start or end with hyphen or underscore".to_string());
+    }
+
+    Ok(())
+}
 
 fn main() {
     let cli = Cli::parse();
@@ -51,6 +103,29 @@ fn main() {
         Commands::Init => {
             println!("🚀 Initializing Purple AI Sandbox environment...");
 
+            // Clean up any leftover test directories from previous runs
+            println!("🧹 Cleaning up leftover directories...");
+            let leftover_patterns = ["test", "test;rm", "test rm", "test-rm"];
+            let policies_dir = std::path::Path::new("policies");
+            if policies_dir.exists()
+                && let Ok(entries) = std::fs::read_dir(policies_dir)
+            {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    // Check if this looks like a leftover test directory
+                    let is_leftover = leftover_patterns
+                        .iter()
+                        .any(|p| name.contains(p) || name.starts_with("test;"));
+                    if is_leftover && entry.path().is_dir() {
+                        if let Err(e) = std::fs::remove_dir_all(entry.path()) {
+                            println!("⚠️  Failed to clean up leftover directory {}: {}", name, e);
+                        } else {
+                            println!("🧹 Cleaned up leftover directory: {}", name);
+                        }
+                    }
+                }
+            }
+
             // Create necessary directories
             let dirs = ["policies", "sessions", "logs", "audit"];
             for dir in dirs.iter() {
@@ -59,6 +134,12 @@ fn main() {
                 } else {
                     println!("✅ Created {} directory", dir);
                 }
+            }
+
+            // Clean up orphaned cgroups
+            println!("🧹 Cleaning up orphaned cgroups...");
+            if let Err(e) = sandbox::cgroups::CgroupManager::cleanup_orphaned_cgroups() {
+                log::warn!("Failed to cleanup orphaned cgroups: {}", e);
             }
 
             // Create default policy if it doesn't exist
@@ -133,6 +214,12 @@ syscalls:
         Commands::Profile { command } => match command {
             ProfileCommands::Create { name } => {
                 println!("Creating profile: {}", name);
+
+                // Validate profile name
+                if let Err(e) = validate_profile_name(name) {
+                    eprintln!("Error: {}", e);
+                    return;
+                }
 
                 // Check if profile already exists
                 let policy_path = format!("./policies/{}.yaml", name);
@@ -297,6 +384,12 @@ audit:
             }
             ProfileCommands::Delete { name } => {
                 println!("Deleting profile: {}", name);
+
+                // Validate profile name
+                if let Err(e) = validate_profile_name(name) {
+                    eprintln!("Error: {}", e);
+                    return;
+                }
 
                 // Check if profile exists
                 let policy_path = format!("./policies/{}.yaml", name);

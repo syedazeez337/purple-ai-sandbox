@@ -8,7 +8,7 @@ use crate::policy::compiler::CompiledPolicy;
 use crate::sandbox::ebpf::{CorrelationEngine, EbpfLoader};
 
 use nix::sys::wait::waitpid;
-use nix::unistd::{ForkResult, execvp, fork, pipe};
+use nix::unistd::{ForkResult, execve, fork, pipe};
 
 use std::ffi::CString;
 use std::fs;
@@ -165,33 +165,12 @@ fn setup_parent_signal_handlers(child_pid: nix::unistd::Pid) {
         }
         Err(e) => {
             log::warn!(
-                "Parent: ctrlc handler failed: {}. Using thread-based signal monitoring...",
+                "Parent: ctrlc handler failed: {}. Relying on default signal handlers.",
                 e
             );
-
-            // Fallback: Use a monitoring thread that checks for signals
-            // This is less reliable but better than nothing
-            let _child_pid_fallback = child_pid;
-            thread::spawn(move || {
-                log::info!("Parent: Thread-based signal monitoring active (limited functionality)");
-
-                // Use a simple polling loop to detect when we should shut down
-                // This is a best-effort fallback when ctrlc fails
-                loop {
-                    thread::sleep(Duration::from_secs(1));
-
-                    // Check for termination signal via libc
-                    unsafe {
-                        libc::signal(libc::SIGTERM, libc::SIG_DFL);
-                    }
-
-                    // In a real implementation, we'd use signal-hook here
-                    // For now, just log that we're running in limited mode
-                    log::debug!("Parent: Fallback signal monitor running");
-                }
-            });
-
-            log::info!("Parent: Signal handling in fallback mode (limited)");
+            log::info!(
+                "Parent: Using default signal handlers (SIGTERM/SIGINT will terminate the process)"
+            );
         }
     }
 }
@@ -641,6 +620,16 @@ impl Sandbox {
                     self.child_cleanup_and_exit(1);
                 }
 
+                // Build environment with proper PATH for the sandbox
+                // After pivot_root, we need to ensure PATH points to accessible directories
+                let sandbox_path = "/usr/local/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+                let env_path = CString::new(format!("PATH={}", sandbox_path)).unwrap();
+                let env_home = CString::new("HOME=/tmp").unwrap();
+                let env_shell = CString::new("SHELL=/bin/sh").unwrap();
+
+                // Build environment vector
+                let env_vars: Vec<CString> = vec![env_path, env_home, env_shell];
+
                 let prog = CString::new(self.agent_command[0].clone()).map_err(|e| {
                     PurpleError::CommandError(format!(
                         "Invalid command (contains null byte): {}",
@@ -660,13 +649,30 @@ impl Sandbox {
                     })
                     .collect::<Result<Vec<CString>>>()?;
 
-                // execvp never returns on success (it replaces the process),
-                // so we only need to handle the error case
-                #[allow(irrefutable_let_patterns)]
-                match execvp(&prog, &args) {
-                    Ok(_) => unreachable!("execvp should not return on success"),
+                // Use execve with explicit environment
+                // This ensures PATH is set correctly inside the sandbox
+                match execve(&prog, &args, &env_vars) {
                     Err(e) => {
-                        log::error!("Failed to execvp: {}", e);
+                        // If execve fails, it might be because:
+                        // 1. Command not found (PATH issue)
+                        // 2. Permission denied
+                        // 3. Command doesn't exist
+                        log::error!("Failed to execute command: {}", e);
+
+                        // Try to provide helpful diagnostics
+                        if e == nix::errno::Errno::ENOENT {
+                            log::error!(
+                                "Command '{}' not found. PATH={}",
+                                self.agent_command[0],
+                                sandbox_path
+                            );
+
+                            // Try to list what's in /usr/bin to help debug
+                            if let Ok(entries) = std::fs::read_dir("/usr/bin") {
+                                let count = entries.count();
+                                log::error!("Found {} entries in /usr/bin", count);
+                            }
+                        }
                         self.child_cleanup_and_exit(1);
                     }
                 }
