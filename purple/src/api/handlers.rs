@@ -30,10 +30,9 @@ pub async fn create_sandbox(
         .map_err(|e| PurpleError::PolicyError(e))?;
 
     // Default command if not provided
-    let command = if payload.command.is_empty() {
-        vec!["/bin/echo".to_string(), "Sandbox started".to_string()]
-    } else {
-        payload.command
+    let command = match payload.command {
+        Some(cmd) if !cmd.is_empty() => cmd,
+        _ => vec!["/bin/echo".to_string(), "Sandbox started".to_string()],
     };
 
     let sandbox_id = manager.create_sandbox(policy, command)?;

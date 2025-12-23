@@ -500,6 +500,8 @@ impl CgroupManager {
 
         // Read all purple cgroup directories
         let mut cleaned_count = 0;
+        let mut permission_errors = Vec::new();
+
         if let Ok(entries) = fs::read_dir(&purple_cgroup_path) {
             for entry in entries.flatten() {
                 if let Ok(file_type) = entry.file_type()
@@ -538,18 +540,12 @@ impl CgroupManager {
                     // Safe to clean up - no processes
                     match fs::remove_dir(&cgroup_path) {
                         Ok(_) => {
-                            log::info!("✓ Cleaned up orphaned cgroup: {}", cgroup_name_str);
+                            log::info!("Cleaned up orphaned cgroup: {}", cgroup_name_str);
                             cleaned_count += 1;
                         }
                         Err(e) => {
                             if e.kind() == std::io::ErrorKind::PermissionDenied {
-                                log::warn!(
-                                    "Permission denied cleaning up cgroup {}. \
-                                     This cgroup may have been created by a previous run as root. \
-                                     Try: sudo rmdir {}",
-                                    cgroup_name_str,
-                                    cgroup_path.display()
-                                );
+                                permission_errors.push(cgroup_path.clone());
                             } else {
                                 log::warn!(
                                     "Failed to clean up orphaned cgroup {}: {}",
@@ -563,8 +559,41 @@ impl CgroupManager {
             }
         }
 
+        // Provide helpful instructions if there were permission errors
+        if !permission_errors.is_empty() {
+            log::warn!("========================================");
+            log::warn!("ORPHANED CGROUPS DETECTED");
+            log::warn!("========================================");
+            log::warn!("Some cgroups could not be cleaned up due to permissions.");
+            log::warn!("This typically happens when running with sudo vs without.");
+
+            // Try to clean up with sudo if available
+            log::info!("Attempting cleanup with elevated permissions...");
+
+            let mut sudo_cleaned = 0;
+            for cgroup_path in &permission_errors {
+                // Use sudo to remove the cgroup if we can
+                let output = std::process::Command::new("sudo")
+                    .args(["rmdir", cgroup_path.to_str().unwrap_or("")])
+                    .output();
+
+                match output {
+                    Ok(output) if output.status.success() => {
+                        log::info!("Cleaned up cgroup with sudo: {}", cgroup_path.display());
+                        sudo_cleaned += 1;
+                    }
+                    _ => {
+                        log::warn!("Could not clean up: {}", cgroup_path.display());
+                        log::warn!("To fix manually, run: sudo rmdir {}", cgroup_path.display());
+                    }
+                }
+            }
+
+            cleaned_count += sudo_cleaned;
+        }
+
         log::info!(
-            "✓ Orphaned cgroup cleanup completed. Cleaned {} cgroups.",
+            "Orphaned cgroup cleanup completed. Cleaned {} cgroups.",
             cleaned_count
         );
         Ok(())

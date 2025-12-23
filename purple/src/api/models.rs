@@ -13,14 +13,14 @@ pub struct CreateSandboxRequest {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateSandboxResponse {
-    pub sandbox_id: Uuid,
+    pub sandbox_id: String,
     pub name: String,
     pub status: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SandboxStatus {
-    pub sandbox_id: Uuid,
+    pub sandbox_id: String,
     pub name: String,
     pub status: String,
     pub created_at: String,
