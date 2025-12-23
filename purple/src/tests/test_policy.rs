@@ -122,6 +122,7 @@ fn create_test_policy_with_paths(
             default_deny: true,
             allow: vec!["read".to_string(), "write".to_string()],
             deny: vec![],
+            advanced_rules: vec![],
         },
         resources: ResourcePolicy {
             cpu_shares: Some(0.5),
@@ -354,6 +355,7 @@ fn create_test_policy_with_resources(
             default_deny: true,
             allow: vec!["read".to_string(), "write".to_string()],
             deny: vec![],
+            advanced_rules: vec![],
         },
         resources: ResourcePolicy {
             cpu_shares: Some(0.5),
@@ -489,6 +491,7 @@ fn create_test_policy_with_ports(outgoing: Vec<&str>, incoming: Vec<&str>) -> Po
             default_deny: true,
             allow: vec!["read".to_string(), "write".to_string()],
             deny: vec![],
+            advanced_rules: vec![],
         },
         resources: ResourcePolicy {
             cpu_shares: None,
@@ -592,6 +595,7 @@ fn test_empty_syscall_list_with_default_deny_rejected() {
             default_deny: true,
             allow: vec![], // Empty!
             deny: vec![],
+            advanced_rules: vec![],
         },
         resources: ResourcePolicy {
             cpu_shares: None,
@@ -649,6 +653,7 @@ fn test_empty_syscall_list_with_default_allow_accepted() {
             default_deny: false, // Allow by default
             allow: vec![],
             deny: vec![],
+            advanced_rules: vec![],
         },
         resources: ResourcePolicy {
             cpu_shares: None,
@@ -717,6 +722,7 @@ fn test_seccomp_deny_list_with_default_allow() {
                 "reboot".to_string(),
                 "ptrace".to_string(),
             ],
+            advanced_rules: vec![],
         },
         resources: ResourcePolicy {
             cpu_shares: None,
@@ -806,6 +812,7 @@ fn test_ipv6_blocked_ips_parsing() {
             default_deny: false,
             allow: vec!["exit_group".to_string()],
             deny: vec![],
+            advanced_rules: vec![],
         },
         resources: ResourcePolicy {
             cpu_shares: None,
@@ -913,6 +920,7 @@ fn test_invalid_blocked_ip_fails() {
             default_deny: false,
             allow: vec!["exit_group".to_string()],
             deny: vec![],
+            advanced_rules: vec![],
         },
         resources: ResourcePolicy {
             cpu_shares: None,

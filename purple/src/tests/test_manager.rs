@@ -23,6 +23,7 @@ fn create_test_policy(name: &str) -> CompiledPolicy {
             default_deny: false,
             allowed_syscall_numbers: BTreeSet::new(),
             denied_syscall_numbers: BTreeSet::new(),
+            advanced_rules: Vec::new(),
         },
         resources: CompiledResourcePolicy {
             cpu_shares: Some(1.0),                 // 1.0 CPU

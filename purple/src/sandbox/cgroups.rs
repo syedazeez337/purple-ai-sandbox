@@ -250,22 +250,8 @@ impl CgroupManager {
         // Apply timeout limits
         if let Some(timeout_secs) = policy.session_timeout_seconds {
             log::info!("Setting session timeout to {} seconds", timeout_secs);
-
-            // Store timeout information for enforcement
             // Note: Actual timeout enforcement happens in the sandbox execution
-            // through a separate monitoring thread that will terminate the process
-            // when the timeout is reached
-
-            // Create a timeout marker file for monitoring
-            let timeout_file_path = self.cgroup_path.join("timeout_info");
-            if let Err(e) = std::fs::write(
-                timeout_file_path,
-                format!("timeout_seconds={}", timeout_secs),
-            ) {
-                log::warn!("Failed to create timeout marker file: {}", e);
-            } else {
-                log::info!("⏳ Timeout marker created - will be enforced during execution");
-            }
+            // through the parent's wait loop with timeout checking
         } else {
             log::info!("No session timeout specified");
         }

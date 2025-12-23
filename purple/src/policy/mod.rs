@@ -64,6 +64,61 @@ pub struct SyscallPolicy {
     /// List of syscalls to explicitly deny (overrides allow if conflict).
     #[serde(default)]
     pub deny: Vec<String>,
+    /// Advanced syscall rules with argument filtering.
+    /// These rules override simple allow/deny rules when they conflict.
+    #[serde(default)]
+    pub advanced_rules: Vec<AdvancedSyscallRule>,
+}
+
+/// Advanced syscall rule with argument filtering support.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AdvancedSyscallRule {
+    /// Name of the syscall this rule applies to.
+    pub syscall: String,
+    /// Action to take for this syscall (allow or deny).
+    pub action: SyscallAction,
+    /// Conditions that must be met for this rule to apply.
+    /// If no conditions are specified, the rule always applies.
+    #[serde(default)]
+    pub conditions: Vec<SyscallCondition>,
+}
+
+/// Action to take for a syscall rule.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum SyscallAction {
+    #[serde(rename = "allow")]
+    Allow,
+    #[serde(rename = "deny")]
+    Deny,
+}
+
+/// Condition that must be met for a syscall rule to apply.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SyscallCondition {
+    /// Argument index (0-based) to check.
+    pub arg: usize,
+    /// Comparison operation to perform.
+    pub op: ConditionOp,
+    /// Value to compare against.
+    pub value: u64,
+    /// Optional bitmask for masked comparisons.
+    #[serde(default)]
+    pub mask: Option<u64>,
+}
+
+/// Comparison operation for syscall argument conditions.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ConditionOp {
+    #[serde(rename = "eq")]
+    Equal,
+    #[serde(rename = "neq")]
+    NotEqual,
+    #[serde(rename = "lt")]
+    LessThan,
+    #[serde(rename = "gt")]
+    GreaterThan,
+    #[serde(rename = "masked_eq")]
+    MaskedEqual,
 }
 
 /// Defines resource limits for the sandbox.

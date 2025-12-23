@@ -28,6 +28,29 @@ pub enum Commands {
     Replay(ReplayArgs),
     /// Generate audit correlation report
     Audit(AuditArgs),
+    /// Manage multiple sandbox instances
+    Sandboxes {
+        #[command(subcommand)]
+        action: SandboxAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SandboxAction {
+    /// List all running sandboxes
+    List,
+    /// Create a new sandbox
+    Create {
+        #[arg(long)]
+        profile: String,
+        #[arg(long)]
+        name: String,
+    },
+    /// Stop and cleanup a sandbox
+    Stop {
+        #[arg(long)]
+        id: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -79,9 +102,12 @@ pub struct ReplayArgs {
 
 #[derive(Parser, Debug)]
 pub struct AuditArgs {
-    /// Session ID to audit
+    /// Session ID to audit (use --all for all sessions)
     #[arg(short, long)]
-    pub session: String,
+    pub session: Option<String>,
+    /// Audit all sessions
+    #[arg(long)]
+    pub all: bool,
     /// Output format (json or text)
     #[arg(short, long, default_value = "text")]
     pub format: String,

@@ -1,5 +1,4 @@
 // purple/src/sandbox/manager.rs
-#![allow(dead_code)]
 
 /// # Sandbox Manager - Multi-Sandbox Management System
 ///
@@ -49,6 +48,7 @@ use uuid::Uuid;
 
 /// Manages multiple concurrent sandbox instances
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct SandboxManager {
     sandboxes: Arc<Mutex<HashMap<String, SandboxInstance>>>,
     resource_pool: ResourcePool,
@@ -56,6 +56,7 @@ pub struct SandboxManager {
 
 /// Information about a running sandbox instance
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct SandboxInstance {
     sandbox: Sandbox,
     status: SandboxStatus,
@@ -66,6 +67,7 @@ pub struct SandboxInstance {
 
 /// Current status of a sandbox
 #[derive(Debug, PartialEq)]
+#[allow(dead_code)]
 pub enum SandboxStatus {
     Initializing,
     Running,
@@ -76,6 +78,7 @@ pub enum SandboxStatus {
 
 /// Resource usage tracking
 #[derive(Debug, Default, Clone)]
+#[allow(dead_code)]
 pub struct ResourceUsage {
     pub cpu_time: f64,      // seconds
     pub memory_peak: u64,   // bytes
@@ -165,6 +168,7 @@ pub struct ResourceAllocation {
     pub memory_mb: u64,
 }
 
+#[allow(dead_code)]
 impl SandboxManager {
     /// Creates a new SandboxManager
     pub fn new() -> Self {
@@ -326,10 +330,36 @@ impl SandboxManager {
             allocated_memory: self.resource_pool.allocated_memory,
         }
     }
+
+    /// Creates a new sandbox from profile and command strings (CLI helper)
+    pub fn create_sandbox_from_profile(
+        &mut self,
+        name: String,
+        profile_name: String,
+    ) -> Result<String> {
+        // Load policy from file
+        let policy_file = format!("./policies/{}.yaml", profile_name);
+        let policy =
+            crate::policy::parser::load_policy_from_file(std::path::Path::new(&policy_file))?
+                .compile()?;
+
+        // Use profile's command or default to echo
+        let command = vec![
+            "/bin/sh".to_string(),
+            "-c".to_string(),
+            format!(
+                "echo 'Sandbox {} created with profile {}'",
+                name, profile_name
+            ),
+        ];
+
+        self.create_sandbox(policy, command)
+    }
 }
 
 /// Resource pool status information
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct ResourcePoolStatus {
     pub total_cpu: f64,
     pub allocated_cpu: f64,
@@ -337,6 +367,7 @@ pub struct ResourcePoolStatus {
     pub allocated_memory: u64,
 }
 
+#[allow(dead_code)]
 impl ResourcePoolStatus {
     pub fn available_cpu(&self) -> f64 {
         self.total_cpu - self.allocated_cpu

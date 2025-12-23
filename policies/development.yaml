@@ -1,0 +1,51 @@
+# Purple AI Sandbox - Default Development Policy
+# This policy provides a balanced approach for AI development
+# with reasonable security constraints while allowing flexibility
+
+name: "development"
+description: "Default development policy with balanced security"
+version: "1.0"
+
+filesystem:
+  working_directory: "/tmp/purple-work"
+  immutable_paths:
+    - host_path: "/etc/passwd"
+      sandbox_path: "/etc/passwd"
+    - host_path: "/etc/group"
+      sandbox_path: "/etc/group"
+  scratch_dirs:
+    - "/tmp/purple-scratch"
+
+resources:
+  memory_limit_mb: 1024
+  cpu_shares: 512
+  pids_limit: 100
+  io_limit_mb_per_sec: 50
+
+network:
+  isolated: false
+  allowed_outgoing_ports:
+    - 80
+    - 443
+    - 8080
+  blocked_ips_v4:
+    - "0.0.0.0"
+  blocked_ips_v6:
+    - "::1"
+
+audit:
+  enabled: true
+  log_path: "./logs/audit.log"
+  detail_level:
+    - "syscalls"
+    - "network"
+    - "filesystem"
+
+syscalls:
+  default_action: "allow"
+  deny_list:
+    - "ptrace"
+    - "kill"
+    - "reboot"
+    - "mount"
+    - "umount"
