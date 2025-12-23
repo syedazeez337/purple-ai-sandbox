@@ -469,21 +469,26 @@ pub fn setup_filesystem(policy: &CompiledPolicy, sandbox_root: &Path) -> Result<
     }
 
     // Change root to the sandbox directory using pivot_root
-    // pivot_root is more secure than chroot because:
+    // pivot_root is the correct way to change root in containers because:
     // 1. It completely replaces the root filesystem
     // 2. The old root is moved to put_old and can be unmounted
     // 3. It prevents escape via /proc/PID/root symlinks
+    //
+    // Requirements for pivot_root:
+    // 1. new_root must be a mount point (we ensure this with bind mount)
+    // 2. put_old must be an empty directory inside new_root
+    // 3. Current directory cannot be under old or new root
     log::info!(
         "Using pivot_root to change root to {}",
         sandbox_root.display()
     );
 
-    // For pivot_root, we need:
-    // 1. The new root to be a mount point (it is, we created it)
-    // 2. A put_old directory inside the new root to hold the old root
-    let put_old = sandbox_root.join(".put_old");
+    // Ensure we're not in the sandbox directory before pivoting
+    // Note: We save the original directory but don't restore it - we use working_dir instead
+    let _original_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
 
-    // Create put_old directory
+    // Create put_old directory inside the new root - this will hold the old root
+    let put_old = sandbox_root.join(".put_old");
     if let Err(e) = fs::create_dir_all(&put_old) {
         transaction.rollback();
         return Err(PurpleError::FilesystemError(format!(
@@ -492,8 +497,8 @@ pub fn setup_filesystem(policy: &CompiledPolicy, sandbox_root: &Path) -> Result<
         )));
     }
 
-    // Make sure put_old is on a separate mount point from the old root
-    // by bind-mounting sandbox_root to itself first (makes it a mount point)
+    // CRITICAL: Make sandbox_root a mount point by bind-mounting it to itself
+    // This is REQUIRED before pivot_root can work
     if let Err(e) = mount(
         Some(sandbox_root),
         sandbox_root,
@@ -509,12 +514,21 @@ pub fn setup_filesystem(policy: &CompiledPolicy, sandbox_root: &Path) -> Result<
     }
     transaction.add_mount(sandbox_root.to_path_buf());
 
-    // Use pivot_root to change the root filesystem
+    // Change to the sandbox root directory (required before pivot_root)
+    if let Err(e) = chdir(sandbox_root) {
+        transaction.rollback();
+        return Err(PurpleError::FilesystemError(format!(
+            "Failed to chdir to sandbox root: {}",
+            e
+        )));
+    }
+
+    // Call pivot_root to change the root filesystem
     // SAFETY: pivot_root is a fundamental containerization syscall.
-    // We ensure:
-    // 1. new_root (sandbox_root) is a mount point
-    // 2. put_old exists and is empty
-    // 3. Neither root is the current process's root
+    // The nix crate provides safe bindings. We ensure:
+    // 1. new_root (sandbox_root) is a mount point (we just created it)
+    // 2. put_old exists and is empty (we just created it)
+    // 3. Current directory is the new root (we just chdir'd there)
     if let Err(e) = pivot_root(sandbox_root, &put_old) {
         transaction.rollback();
         return Err(PurpleError::FilesystemError(format!(
@@ -525,41 +539,42 @@ pub fn setup_filesystem(policy: &CompiledPolicy, sandbox_root: &Path) -> Result<
     }
     log::info!("Successfully pivoted root to {}", sandbox_root.display());
 
-    // Now the old root is in put_old. We need to:
-    // 1. Unmount the old root from put_old
-    // 2. Remove the put_old directory
-    // 3. Change to the working directory
-
-    // Unmount the old root filesystem from put_old
-    if let Err(e) = umount2(&put_old, MntFlags::MNT_DETACH) {
+    // After pivot_root, the old root is now at /.put_old
+    // We need to unmount it to fully detach the old filesystem
+    // The path /.put_old is the same as put_old after pivot_root
+    let put_old_final = Path::new("/.put_old");
+    if let Err(e) = umount2(put_old_final, MntFlags::MNT_DETACH) {
         log::warn!(
-            "Failed to unmount old root from put_old: {}. This is not critical.",
+            "Failed to unmount old root from /.put_old: {}. This is non-critical.",
             e
         );
     } else {
-        log::debug!("Unmounted old root from put_old");
+        log::debug!("Unmounted old root from /.put_old");
     }
 
-    // Remove the put_old directory (it's now empty after unmount)
-    if let Err(e) = fs::remove_dir(&put_old) {
+    // Remove the put_old directory (now empty after unmount)
+    if let Err(e) = fs::remove_dir(put_old_final) {
         log::warn!(
-            "Failed to remove put_old directory: {}. This is not critical.",
+            "Failed to remove /.put_old directory: {}. This is non-critical.",
             e
         );
     }
 
-    // Change to the new root directory
-    if let Err(e) = chdir(&policy.filesystem.working_dir) {
+    // Restore original working directory or change to the policy's working directory
+    let working_dir = if policy.filesystem.working_dir.is_absolute() {
+        policy.filesystem.working_dir.clone()
+    } else {
+        Path::new("/").join(&policy.filesystem.working_dir)
+    };
+
+    if let Err(e) = chdir(&working_dir) {
         return Err(PurpleError::FilesystemError(format!(
             "Failed to change working directory to {}: {}",
-            policy.filesystem.working_dir.display(),
+            working_dir.display(),
             e
         )));
     }
-    log::info!(
-        "Changed working directory to {}",
-        policy.filesystem.working_dir.display()
-    );
+    log::info!("Changed working directory to {}", working_dir.display());
 
     Ok(())
 }

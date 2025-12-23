@@ -43,6 +43,11 @@ fn main() {
     log::info!("Purple sandbox started with log level: {}", cli.log_level);
 
     match &cli.command {
+        Commands::Version => {
+            println!("Purple AI Sandbox v{}", env!("CARGO_PKG_VERSION"));
+            println!("Enterprise-Grade Secure Runtime for Autonomous AI Agents");
+            println!("License: Apache 2.0");
+        }
         Commands::Init => {
             println!("🚀 Initializing Purple AI Sandbox environment...");
 

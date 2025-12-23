@@ -542,11 +542,21 @@ impl CgroupManager {
                             cleaned_count += 1;
                         }
                         Err(e) => {
-                            log::warn!(
-                                "Failed to clean up orphaned cgroup {}: {}",
-                                cgroup_name_str,
-                                e
-                            );
+                            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                                log::warn!(
+                                    "Permission denied cleaning up cgroup {}. \
+                                     This cgroup may have been created by a previous run as root. \
+                                     Try: sudo rmdir {}",
+                                    cgroup_name_str,
+                                    cgroup_path.display()
+                                );
+                            } else {
+                                log::warn!(
+                                    "Failed to clean up orphaned cgroup {}: {}",
+                                    cgroup_name_str,
+                                    e
+                                );
+                            }
                         }
                     }
                 }
