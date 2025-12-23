@@ -542,31 +542,41 @@
 <a href=#542 id=542 data-nosnippet>542</a>                            cleaned_count += <span class="number">1</span>;
 <a href=#543 id=543 data-nosnippet>543</a>                        }
 <a href=#544 id=544 data-nosnippet>544</a>                        <span class="prelude-val">Err</span>(e) =&gt; {
-<a href=#545 id=545 data-nosnippet>545</a>                            <span class="macro">log::warn!</span>(
-<a href=#546 id=546 data-nosnippet>546</a>                                <span class="string">"Failed to clean up orphaned cgroup {}: {}"</span>,
-<a href=#547 id=547 data-nosnippet>547</a>                                cgroup_name_str,
-<a href=#548 id=548 data-nosnippet>548</a>                                e
-<a href=#549 id=549 data-nosnippet>549</a>                            );
-<a href=#550 id=550 data-nosnippet>550</a>                        }
-<a href=#551 id=551 data-nosnippet>551</a>                    }
-<a href=#552 id=552 data-nosnippet>552</a>                }
-<a href=#553 id=553 data-nosnippet>553</a>            }
-<a href=#554 id=554 data-nosnippet>554</a>        }
-<a href=#555 id=555 data-nosnippet>555</a>
-<a href=#556 id=556 data-nosnippet>556</a>        <span class="macro">log::info!</span>(
-<a href=#557 id=557 data-nosnippet>557</a>            <span class="string">"✓ Orphaned cgroup cleanup completed. Cleaned {} cgroups."</span>,
-<a href=#558 id=558 data-nosnippet>558</a>            cleaned_count
-<a href=#559 id=559 data-nosnippet>559</a>        );
-<a href=#560 id=560 data-nosnippet>560</a>        <span class="prelude-val">Ok</span>(())
-<a href=#561 id=561 data-nosnippet>561</a>    }
-<a href=#562 id=562 data-nosnippet>562</a>}
-<a href=#563 id=563 data-nosnippet>563</a>
-<a href=#564 id=564 data-nosnippet>564</a><span class="doccomment">/// Creates a unique sandbox ID for cgroup naming
-<a href=#565 id=565 data-nosnippet>565</a></span><span class="kw">pub fn </span>generate_sandbox_id() -&gt; String {
-<a href=#566 id=566 data-nosnippet>566</a>    <span class="kw">use </span>std::time::{SystemTime, UNIX_EPOCH};
-<a href=#567 id=567 data-nosnippet>567</a>
-<a href=#568 id=568 data-nosnippet>568</a>    <span class="kw">match </span>SystemTime::now().duration_since(UNIX_EPOCH) {
-<a href=#569 id=569 data-nosnippet>569</a>        <span class="prelude-val">Ok</span>(duration) =&gt; <span class="macro">format!</span>(<span class="string">"{}"</span>, duration.as_nanos()),
-<a href=#570 id=570 data-nosnippet>570</a>        <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; <span class="string">"0"</span>.to_string(),
+<a href=#545 id=545 data-nosnippet>545</a>                            <span class="kw">if </span>e.kind() == std::io::ErrorKind::PermissionDenied {
+<a href=#546 id=546 data-nosnippet>546</a>                                <span class="macro">log::warn!</span>(
+<a href=#547 id=547 data-nosnippet>547</a>                                    <span class="string">"Permission denied cleaning up cgroup {}. \
+<a href=#548 id=548 data-nosnippet>548</a>                                     This cgroup may have been created by a previous run as root. \
+<a href=#549 id=549 data-nosnippet>549</a>                                     Try: sudo rmdir {}"</span>,
+<a href=#550 id=550 data-nosnippet>550</a>                                    cgroup_name_str,
+<a href=#551 id=551 data-nosnippet>551</a>                                    cgroup_path.display()
+<a href=#552 id=552 data-nosnippet>552</a>                                );
+<a href=#553 id=553 data-nosnippet>553</a>                            } <span class="kw">else </span>{
+<a href=#554 id=554 data-nosnippet>554</a>                                <span class="macro">log::warn!</span>(
+<a href=#555 id=555 data-nosnippet>555</a>                                    <span class="string">"Failed to clean up orphaned cgroup {}: {}"</span>,
+<a href=#556 id=556 data-nosnippet>556</a>                                    cgroup_name_str,
+<a href=#557 id=557 data-nosnippet>557</a>                                    e
+<a href=#558 id=558 data-nosnippet>558</a>                                );
+<a href=#559 id=559 data-nosnippet>559</a>                            }
+<a href=#560 id=560 data-nosnippet>560</a>                        }
+<a href=#561 id=561 data-nosnippet>561</a>                    }
+<a href=#562 id=562 data-nosnippet>562</a>                }
+<a href=#563 id=563 data-nosnippet>563</a>            }
+<a href=#564 id=564 data-nosnippet>564</a>        }
+<a href=#565 id=565 data-nosnippet>565</a>
+<a href=#566 id=566 data-nosnippet>566</a>        <span class="macro">log::info!</span>(
+<a href=#567 id=567 data-nosnippet>567</a>            <span class="string">"✓ Orphaned cgroup cleanup completed. Cleaned {} cgroups."</span>,
+<a href=#568 id=568 data-nosnippet>568</a>            cleaned_count
+<a href=#569 id=569 data-nosnippet>569</a>        );
+<a href=#570 id=570 data-nosnippet>570</a>        <span class="prelude-val">Ok</span>(())
 <a href=#571 id=571 data-nosnippet>571</a>    }
-<a href=#572 id=572 data-nosnippet>572</a>}</code></pre></div></section></main></body></html>
+<a href=#572 id=572 data-nosnippet>572</a>}
+<a href=#573 id=573 data-nosnippet>573</a>
+<a href=#574 id=574 data-nosnippet>574</a><span class="doccomment">/// Creates a unique sandbox ID for cgroup naming
+<a href=#575 id=575 data-nosnippet>575</a></span><span class="kw">pub fn </span>generate_sandbox_id() -&gt; String {
+<a href=#576 id=576 data-nosnippet>576</a>    <span class="kw">use </span>std::time::{SystemTime, UNIX_EPOCH};
+<a href=#577 id=577 data-nosnippet>577</a>
+<a href=#578 id=578 data-nosnippet>578</a>    <span class="kw">match </span>SystemTime::now().duration_since(UNIX_EPOCH) {
+<a href=#579 id=579 data-nosnippet>579</a>        <span class="prelude-val">Ok</span>(duration) =&gt; <span class="macro">format!</span>(<span class="string">"{}"</span>, duration.as_nanos()),
+<a href=#580 id=580 data-nosnippet>580</a>        <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; <span class="string">"0"</span>.to_string(),
+<a href=#581 id=581 data-nosnippet>581</a>    }
+<a href=#582 id=582 data-nosnippet>582</a>}</code></pre></div></section></main></body></html>
