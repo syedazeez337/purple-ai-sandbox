@@ -10,11 +10,11 @@ mod logging;
 mod tests;
 
 use clap::Parser;
-use cli::{Cli, Commands, ProfileCommands};
+use cli::{Cli, Commands, ProfileCommands, SandboxAction};
 use error::PurpleError;
 use log::LevelFilter;
 use logging::init_logging;
-use sandbox::Sandbox; // Import Sandbox
+use sandbox::{Sandbox, manager::SandboxManager};
 
 fn main() {
     let cli = Cli::parse();
@@ -689,29 +689,76 @@ audit:
                 args.session_id
             );
         }
+        Commands::Sandboxes { action } => {
+            let mut manager = SandboxManager::new();
+
+            match action {
+                SandboxAction::List => match manager.list_sandboxes() {
+                    Ok(sandboxes) => {
+                        if sandboxes.is_empty() {
+                            println!("📋 No running sandboxes found.");
+                        } else {
+                            println!("📋 Running Sandboxes:");
+                            for (id, status) in sandboxes {
+                                println!("  - {}: (status: {:?})", id, status);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Failed to list sandboxes: {}", e);
+                        std::process::exit(1);
+                    }
+                },
+                SandboxAction::Create { profile, name } => {
+                    match manager.create_sandbox_from_profile(name.clone(), profile.clone()) {
+                        Ok(sandbox_id) => {
+                            println!(
+                                "✅ Sandbox '{}' created successfully with ID: {}",
+                                name, sandbox_id
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!("❌ Failed to create sandbox: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                SandboxAction::Stop { id } => match manager.cleanup_sandbox(id) {
+                    Ok(_) => {
+                        println!("✅ Sandbox '{}' stopped and cleaned up successfully", id);
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Failed to stop sandbox: {}", e);
+                        std::process::exit(1);
+                    }
+                },
+            }
+        }
         Commands::Audit(args) => {
-            println!("🔍 Generating audit report...");
+            println!("Generating audit report...");
 
             // Determine what to audit
-            let target_path = if args.session.is_empty() {
+            // Use --all flag or default to auditing all sessions if no specific session given
+            let audit_all = args.all || args.session.is_none();
+            let target_path = if audit_all {
                 // Audit all sessions
                 "./sessions/".to_string()
             } else {
                 // Audit specific session
-                format!("./sessions/{}", args.session)
+                format!("./sessions/{}", args.session.as_ref().unwrap())
             };
 
             if !std::path::Path::new(&target_path).exists() {
-                eprintln!("❌ Target not found: {}", target_path);
+                eprintln!("Target not found: {}", target_path);
                 return;
             }
 
             match args.format.as_str() {
                 "json" => {
-                    println!("📄 Generating JSON audit report...");
+                    println!("Generating JSON audit report...");
 
                     // Simple JSON structure for now
-                    let json_report = if args.session.is_empty() {
+                    let json_report = if audit_all {
                         format!(
                             "{{\"audit_type\": \"all_sessions\", \"timestamp\": \"{}\", \"sessions_found\": {}}}",
                             chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
@@ -722,7 +769,7 @@ audit:
                     } else {
                         format!(
                             "{{\"audit_type\": \"session\", \"session_id\": \"{}\", \"timestamp\": \"{}\"}}",
-                            args.session,
+                            args.session.as_ref().unwrap(),
                             chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
                         )
                     };
@@ -730,10 +777,10 @@ audit:
                     println!("{}", json_report);
                 }
                 "text" | "txt" => {
-                    println!("📄 Generating text audit report...");
+                    println!("Generating text audit report...");
                     println!("==============================");
 
-                    if args.session.is_empty() {
+                    if audit_all {
                         println!("Auditing all sessions in: {}", target_path);
 
                         if let Ok(entries) = std::fs::read_dir(&target_path) {
@@ -747,7 +794,7 @@ audit:
                             println!("\nTotal sessions found: {}", session_count);
                         }
                     } else {
-                        println!("Auditing session: {}", args.session);
+                        println!("Auditing session: {}", args.session.as_ref().unwrap());
                         println!("Session directory: {}", target_path);
 
                         // List session files
@@ -769,7 +816,7 @@ audit:
                         chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
                     );
 
-                    if args.session.is_empty() {
+                    if audit_all {
                         println!("<h2>All Sessions</h2><ul>");
                         if let Ok(entries) = std::fs::read_dir(&target_path) {
                             for entry in entries.flatten() {
@@ -780,7 +827,7 @@ audit:
                         }
                         println!("</ul>");
                     } else {
-                        println!("<h2>Session: {}</h2>", args.session);
+                        println!("<h2>Session: {}</h2>", args.session.as_ref().unwrap());
                         println!("<h3>Files:</h3><ul>");
                         if let Ok(entries) = std::fs::read_dir(&target_path) {
                             for entry in entries.flatten() {

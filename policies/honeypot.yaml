@@ -21,7 +21,32 @@ filesystem:
 syscalls:
   default_deny: false
   allow: []
-  deny: []
+  deny:
+    # Core dangerous syscalls - always block these even in permissive mode
+    - "mount"
+    - "umount2"
+    - "pivot_root"
+    - "chroot"
+    - "kexec_load"
+    - "init_module"
+    - "delete_module"
+    - "finit_module"
+    - "request_key"
+    - "add_key"
+    - "keyctl"
+    - "ptrace"
+    - "process_vm_readv"
+    - "process_vm_writev"
+    - "personality"
+    - "reboot"
+    - "settimeofday"
+    - "adjtimex"
+    - "clock_settime"
+    - "sethostname"
+    - "setdomainname"
+    - "reboot"
+    - "acct"
+    - "quotactl"
 
 resources:
   cpu_shares: 0.2

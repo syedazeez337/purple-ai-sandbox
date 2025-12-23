@@ -3,7 +3,9 @@
 use std::fmt;
 use std::io;
 
+use axum::{Json, http::StatusCode, response::IntoResponse};
 use libseccomp::error::SeccompError;
+use serde_json::json;
 
 /// Custom error type for Purple sandbox operations
 /// Note: Some variants may be unused currently but kept for completeness
@@ -37,6 +39,8 @@ pub enum PurpleError {
     ConfigError(String),
     /// Permission/privilege errors
     PermissionError(String),
+    /// API-related errors
+    ApiError(String),
 }
 
 impl fmt::Display for PurpleError {
@@ -55,6 +59,7 @@ impl fmt::Display for PurpleError {
             PurpleError::CommandError(e) => write!(f, "Command error: {}", e),
             PurpleError::ConfigError(e) => write!(f, "Config error: {}", e),
             PurpleError::PermissionError(e) => write!(f, "Permission error: {}", e),
+            PurpleError::ApiError(e) => write!(f, "API error: {}", e),
         }
     }
 }
@@ -110,6 +115,71 @@ impl std::error::Error for PurpleError {
     }
 }
 
+impl IntoResponse for PurpleError {
+    fn into_response(self) -> axum::response::Response {
+        let (status, error_message) = match self {
+            PurpleError::IoError(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("IO error: {}", e),
+            ),
+            PurpleError::PolicyError(e) => {
+                (StatusCode::BAD_REQUEST, format!("Policy error: {}", e))
+            }
+            PurpleError::SandboxError(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Sandbox error: {}", e),
+            ),
+            PurpleError::NamespaceError(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Namespace error: {}", e),
+            ),
+            PurpleError::FilesystemError(e) => {
+                (StatusCode::BAD_REQUEST, format!("Filesystem error: {}", e))
+            }
+            PurpleError::ResourceError(e) => {
+                (StatusCode::BAD_REQUEST, format!("Resource error: {}", e))
+            }
+            PurpleError::NetworkError(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Network error: {}", e),
+            ),
+            PurpleError::CapabilityError(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Capability error: {}", e),
+            ),
+            PurpleError::SyscallError(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Syscall error: {}", e),
+            ),
+            PurpleError::AuditError(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Audit error: {}", e),
+            ),
+            PurpleError::CommandError(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Command error: {}", e),
+            ),
+            PurpleError::ConfigError(e) => {
+                (StatusCode::BAD_REQUEST, format!("Config error: {}", e))
+            }
+            PurpleError::PermissionError(e) => {
+                (StatusCode::FORBIDDEN, format!("Permission error: {}", e))
+            }
+            PurpleError::ApiError(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("API error: {}", e),
+            ),
+        };
+
+        let body = Json(json!({
+            "error": error_message,
+            "timestamp": chrono::Local::now().to_rfc3339(),
+        }));
+
+        (status, body).into_response()
+    }
+}
+
 impl From<io::Error> for PurpleError {
     fn from(err: io::Error) -> Self {
         PurpleError::IoError(err)
@@ -137,6 +207,12 @@ impl From<SeccompError> for PurpleError {
 impl From<serde_json::Error> for PurpleError {
     fn from(err: serde_json::Error) -> Self {
         PurpleError::PolicyError(format!("JSON parsing error: {}", err))
+    }
+}
+
+impl From<Box<dyn std::error::Error>> for PurpleError {
+    fn from(err: Box<dyn std::error::Error>) -> Self {
+        PurpleError::PolicyError(format!("Policy error: {}", err))
     }
 }
 

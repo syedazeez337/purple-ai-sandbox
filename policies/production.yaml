@@ -1,0 +1,193 @@
+name: "production-secure"
+description: "Scenario 4: High-assurance production. Read-only root, tight syscalls, no network."
+
+filesystem:
+  immutable_paths:
+    - host_path: "/usr/bin"
+      sandbox_path: "/usr/bin"
+    - host_path: "/usr/lib"
+      sandbox_path: "/usr/lib"
+    - host_path: "/lib64"
+      sandbox_path: "/lib64"
+    - host_path: "/bin"
+      sandbox_path: "/bin"
+  scratch_paths:
+    - "/tmp"
+  output_paths:
+    - host_path: "/tmp/purple/output/production"
+      sandbox_path: "/var/log/app"
+  working_dir: "/tmp"
+
+syscalls:
+  default_deny: true
+  allow:
+    # File I/O operations
+    - "read"
+    - "write"
+    - "openat"
+    - "close"
+    - "fstat"
+    - "newfstatat"
+    - "lseek"
+    - "pread64"
+    - "writev"
+    - "readlink"
+    - "stat"
+    - "statx"
+    - "access"
+    - "getdents64"
+
+    # Memory management
+    - "mmap"
+    - "mprotect"
+    - "munmap"
+    - "brk"
+    - "madvise"
+
+    # Process operations
+    - "execve"
+    - "execveat"
+    - "exit_group"
+    - "exit"
+    - "wait4"
+    - "clone"
+    - "clone3"
+    - "fork"
+    - "vfork"
+
+    # Signal handling
+    - "rt_sigaction"
+    - "rt_sigprocmask"
+    - "rt_sigreturn"
+    - "sigaltstack"
+
+    # Thread and concurrency
+    - "set_tid_address"
+    - "set_robust_list"
+    - "rseq"
+    - "futex"
+    - "nanosleep"
+    - "clock_nanosleep"
+    - "clock_gettime"
+
+    # File descriptor operations
+    - "dup"
+    - "dup2"
+    - "pipe"
+    - "pipe2"
+    - "fcntl"
+
+    # Process identification and credentials
+    - "getpid"
+    - "getuid"
+    - "getgid"
+    - "geteuid"
+    - "getegid"
+    - "getppid"
+    - "getpgid"
+    - "getsid"
+    - "getgroups"
+    - "getrlimit"
+    - "prlimit64"
+
+    # System information
+    - "uname"
+    - "sysinfo"
+    - "getrandom"
+    - "arch_prctl"
+    - "syscall"
+
+    # Current working directory
+    - "getcwd"
+    - "chdir"
+    - "fchdir"
+
+    # I/O operations
+    - "ioctl"
+
+    # Socket operations (needed for some libc functions)
+    - "socket"
+    - "connect"
+    - "sendto"
+    - "recvfrom"
+    - "sendmsg"
+    - "recvmsg"
+    - "setsockopt"
+    - "getsockopt"
+    - "shutdown"
+
+    # Event polling
+    - "poll"
+    - "ppoll"
+    - "epoll_create"
+    - "epoll_create1"
+    - "epoll_ctl"
+    - "epoll_wait"
+    - "epoll_pwait"
+
+    # Timer operations
+    - "timer_create"
+    - "timer_settime"
+    - "timer_gettime"
+    - "timer_getoverrun"
+    - "timer_delete"
+
+    # Shared memory (for malloc implementation)
+    - "shmget"
+    - "shmat"
+    - "shmctl"
+
+    # Semaphore operations
+    - "semget"
+    - "semop"
+    - "semctl"
+
+    # Message queues
+    - "msgget"
+    - "msgsnd"
+    - "msgrcv"
+    - "msgctl"
+
+    # Memory mapping
+    - "mbind"
+    - "set_mempolicy"
+    - "get_mempolicy"
+
+  deny:
+    # Explicitly deny dangerous syscalls even in default_deny mode
+    - "mount"
+    - "umount2"
+    - "pivot_root"
+    - "chroot"
+    - "kexec_load"
+    - "init_module"
+    - "delete_module"
+    - "finit_module"
+    - "request_key"
+    - "add_key"
+    - "keyctl"
+    - "ptrace"
+    - "process_vm_readv"
+    - "process_vm_writev"
+    - "personality"
+
+resources:
+  cpu_shares: 0.5
+  memory_limit_bytes: "256M"
+  pids_limit: 10
+  io_limit_bytes_per_sec: "10M"
+  session_timeout_seconds: 3600
+
+capabilities:
+  default_drop: true
+  add: []
+
+network:
+  isolated: true
+  allow_outgoing: []
+  allow_incoming: []
+
+audit:
+  enabled: true
+  log_path: "/tmp/purple/audit/production.log"
+  detail_level: ["syscall", "filesystem", "resource"]

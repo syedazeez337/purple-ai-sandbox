@@ -100,25 +100,36 @@ fn setup_loopback_interface() -> Result<()> {
                 stderr
             );
         } else {
-            log::info!("✓ Loopback interface brought up");
+            log::info!("Loopback interface brought up");
         }
 
-        // Add loopback address (usually already configured, but ensure it)
-        let output = Command::new("ip")
-            .args(["addr", "add", "127.0.0.1/8", "dev", "lo"])
+        // Check if loopback address already exists before adding
+        let check_output = Command::new("ip")
+            .args(["addr", "show", "lo", "dev", "lo"])
             .output()
             .map_err(|e| {
-                PurpleError::NetworkError(format!("Failed to execute 'ip addr add': {}", e))
+                PurpleError::NetworkError(format!("Failed to check loopback address: {}", e))
             })?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            // EEXIST is expected if address already exists
-            if !stderr.contains("RTNETLINK answers: File exists") {
-                log::warn!("Failed to add loopback address: {}", stderr);
-            }
+        let addr_exists = String::from_utf8_lossy(&check_output.stdout).contains("127.0.0.1");
+
+        if addr_exists {
+            log::info!("Loopback address already configured (skipped duplicate)");
         } else {
-            log::info!("✓ Loopback address configured");
+            // Add loopback address
+            let output = Command::new("ip")
+                .args(["addr", "add", "127.0.0.1/8", "dev", "lo"])
+                .output()
+                .map_err(|e| {
+                    PurpleError::NetworkError(format!("Failed to execute 'ip addr add': {}", e))
+                })?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                log::warn!("Failed to add loopback address: {}", stderr);
+            } else {
+                log::info!("Loopback address configured");
+            }
         }
     } else {
         // Fallback: Use ioctl to bring up loopback interface
@@ -127,7 +138,7 @@ fn setup_loopback_interface() -> Result<()> {
         setup_loopback_with_ioctl()?;
     }
 
-    log::info!("✓ Loopback interface configured and enforced");
+    log::info!("Loopback interface configured and enforced");
     Ok(())
 }
 

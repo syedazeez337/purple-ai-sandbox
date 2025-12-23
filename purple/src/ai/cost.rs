@@ -95,7 +95,9 @@ impl CostCalculator {
         Self::calculate(model, prompt_tokens, completion_tokens).unwrap_or_else(|| {
             // Fallback: use GPT-3.5-turbo pricing (most common)
             log::warn!("Unknown model '{}', using fallback pricing", model);
-            let fallback = PRICING.get("gpt-3.5-turbo").unwrap();
+            let fallback = PRICING
+                .get("gpt-3.5-turbo")
+                .expect("gpt-3.5-turbo must exist in PRICING map");
             let input_cost = (prompt_tokens * fallback.input_per_1k_cents) / 1000;
             let output_cost = (completion_tokens * fallback.output_per_1k_cents) / 1000;
             input_cost + output_cost

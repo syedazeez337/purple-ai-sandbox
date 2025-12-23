@@ -3,10 +3,49 @@ use crate::policy::compiler::CompiledPolicy;
 use nix::mount::{MsFlags, mount};
 use nix::unistd::chroot;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
-
 use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+
+/// Tracks a mount operation for potential rollback
+#[derive(Debug, Clone)]
+struct MountOperation {
+    target: PathBuf,
+}
+
+/// Manages filesystem setup with rollback capability on failure
+struct FilesystemTransaction {
+    mounts: Vec<MountOperation>,
+}
+
+impl FilesystemTransaction {
+    fn new() -> Self {
+        Self { mounts: Vec::new() }
+    }
+
+    /// Add a mount to be tracked
+    fn add_mount(&mut self, target: PathBuf) {
+        self.mounts.push(MountOperation { target });
+    }
+
+    /// Rollback all mounts (called on failure)
+    fn rollback(&self) {
+        log::info!("Rolling back filesystem changes...");
+        use nix::mount::umount;
+        // Unmount in reverse order
+        for mount_op in self.mounts.iter().rev() {
+            if let Err(e) = umount(&mount_op.target) {
+                log::warn!(
+                    "Failed to unmount {} during rollback: {}",
+                    mount_op.target.display(),
+                    e
+                );
+            } else {
+                log::debug!("Rolled back mount: {}", mount_op.target.display());
+            }
+        }
+    }
+}
 
 /// Safely create a file without following symlinks (TOCTOU protection)
 fn safe_create_file(path: &Path) -> Result<()> {
@@ -101,14 +140,20 @@ fn validate_path_no_symlinks(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Setup filesystem isolation
+/// Setup filesystem isolation with rollback support
 pub fn setup_filesystem(policy: &CompiledPolicy, sandbox_root: &Path) -> Result<()> {
     log::info!("Setting up filesystem isolation...");
 
+    // Create transaction for rollback on failure
+    let mut transaction = FilesystemTransaction::new();
+
     // Create temporary directory structure for the sandbox
-    fs::create_dir_all(sandbox_root).map_err(|e| {
-        PurpleError::FilesystemError(format!("Failed to create sandbox root: {}", e))
-    })?;
+    if let Err(e) = fs::create_dir_all(sandbox_root) {
+        return Err(PurpleError::FilesystemError(format!(
+            "Failed to create sandbox root: {}",
+            e
+        )));
+    }
 
     // Create necessary directories
     let directories = [
@@ -118,13 +163,13 @@ pub fn setup_filesystem(policy: &CompiledPolicy, sandbox_root: &Path) -> Result<
 
     for dir in directories.iter() {
         let path = Path::new(sandbox_root).join(dir);
-        fs::create_dir_all(&path).map_err(|e| {
-            PurpleError::FilesystemError(format!(
+        if let Err(e) = fs::create_dir_all(&path) {
+            return Err(PurpleError::FilesystemError(format!(
                 "Failed to create directory {}: {}",
                 path.display(),
                 e
-            ))
-        })?;
+            )));
+        }
     }
 
     // Setup bind mounts for immutable paths
@@ -135,29 +180,46 @@ pub fn setup_filesystem(policy: &CompiledPolicy, sandbox_root: &Path) -> Result<
                 .unwrap_or(sandbox_path.as_path()),
         );
 
-        // Create parent directory if it doesn't exist
-        if let Some(parent) = full_sandbox_path.parent() {
-            fs::create_dir_all(parent).map_err(|e| {
-                PurpleError::FilesystemError(format!(
-                    "Failed to create parent directory {}: {}",
-                    parent.display(),
+        // Auto-create host directory if it doesn't exist
+        if !host_path.exists() {
+            log::info!("Auto-creating host directory: {}", host_path.display());
+            if let Err(e) = fs::create_dir_all(host_path) {
+                return Err(PurpleError::FilesystemError(format!(
+                    "Failed to create host directory {}: {}",
+                    host_path.display(),
                     e
-                ))
-            })?;
+                )));
+            }
+        }
+
+        // Create parent directory if it doesn't exist
+        if let Some(parent) = full_sandbox_path.parent()
+            && let Err(e) = fs::create_dir_all(parent)
+        {
+            transaction.rollback();
+            return Err(PurpleError::FilesystemError(format!(
+                "Failed to create parent directory {}: {}",
+                parent.display(),
+                e
+            )));
         }
 
         // Create the mount point (file or directory)
         if host_path.is_dir() {
-            fs::create_dir_all(&full_sandbox_path).map_err(|e| {
-                PurpleError::FilesystemError(format!(
+            if let Err(e) = fs::create_dir_all(&full_sandbox_path) {
+                transaction.rollback();
+                return Err(PurpleError::FilesystemError(format!(
                     "Failed to create mount point directory {}: {}",
                     full_sandbox_path.display(),
                     e
-                ))
-            })?;
+                )));
+            }
         } else {
             // Assume it's a file - create empty file as mount point (TOCTOU-safe)
-            safe_create_file(&full_sandbox_path)?;
+            if let Err(e) = safe_create_file(&full_sandbox_path) {
+                transaction.rollback();
+                return Err(e);
+            }
         }
 
         log::info!(
@@ -167,37 +229,39 @@ pub fn setup_filesystem(policy: &CompiledPolicy, sandbox_root: &Path) -> Result<
         );
 
         // Bind mount the host path to the sandbox path
-        mount(
+        if let Err(e) = mount(
             Some(host_path.as_path()),
             &full_sandbox_path,
             None::<&str>,
             MsFlags::MS_BIND,
             None::<&str>,
-        )
-        .map_err(|e| {
-            PurpleError::FilesystemError(format!(
+        ) {
+            transaction.rollback();
+            return Err(PurpleError::FilesystemError(format!(
                 "Failed to bind mount {} to {}: {}",
                 host_path.display(),
                 full_sandbox_path.display(),
                 e
-            ))
-        })?;
+            )));
+        }
+        transaction.add_mount(full_sandbox_path.clone());
 
         // Make it read-only
-        mount(
+        if let Err(e) = mount(
             None::<&str>,
             &full_sandbox_path,
             None::<&str>,
             MsFlags::MS_BIND | MsFlags::MS_REMOUNT | MsFlags::MS_RDONLY,
             None::<&str>,
-        )
-        .map_err(|e| {
-            PurpleError::FilesystemError(format!(
+        ) {
+            transaction.rollback();
+            return Err(PurpleError::FilesystemError(format!(
                 "Failed to remount {} as read-only: {}",
                 full_sandbox_path.display(),
                 e
-            ))
-        })?;
+            )));
+        }
+        transaction.add_mount(full_sandbox_path.clone());
     }
 
     // Setup scratch directories
@@ -208,26 +272,28 @@ pub fn setup_filesystem(policy: &CompiledPolicy, sandbox_root: &Path) -> Result<
                 .unwrap_or(scratch_path.as_path()),
         );
 
-        if let Some(parent) = full_sandbox_path.parent() {
-            fs::create_dir_all(parent).map_err(|e| {
-                PurpleError::FilesystemError(format!(
-                    "Failed to create parent directory {}: {}",
-                    parent.display(),
-                    e
-                ))
-            })?;
+        if let Some(parent) = full_sandbox_path.parent()
+            && let Err(e) = fs::create_dir_all(parent)
+        {
+            transaction.rollback();
+            return Err(PurpleError::FilesystemError(format!(
+                "Failed to create parent directory {}: {}",
+                parent.display(),
+                e
+            )));
         }
 
-        fs::create_dir_all(&full_sandbox_path).map_err(|e| {
-            PurpleError::FilesystemError(format!(
+        if let Err(e) = fs::create_dir_all(&full_sandbox_path) {
+            transaction.rollback();
+            return Err(PurpleError::FilesystemError(format!(
                 "Failed to create scratch directory {}: {}",
                 full_sandbox_path.display(),
                 e
-            ))
-        })?;
+            )));
+        }
     }
 
-    // Setup output directories (writable)
+    // Setup output directories (writable) - auto-create host directories
     for (host_path, sandbox_path) in &policy.filesystem.output_mounts {
         let full_sandbox_path = Path::new(sandbox_root).join(
             sandbox_path
@@ -235,70 +301,102 @@ pub fn setup_filesystem(policy: &CompiledPolicy, sandbox_root: &Path) -> Result<
                 .unwrap_or(sandbox_path.as_path()),
         );
 
-        if let Some(parent) = full_sandbox_path.parent() {
-            fs::create_dir_all(parent).map_err(|e| {
-                PurpleError::FilesystemError(format!(
-                    "Failed to create parent directory {}: {}",
-                    parent.display(),
+        // Auto-create host directory if it doesn't exist
+        if !host_path.exists() {
+            log::info!(
+                "Auto-creating output host directory: {}",
+                host_path.display()
+            );
+            if let Err(e) = fs::create_dir_all(host_path) {
+                return Err(PurpleError::FilesystemError(format!(
+                    "Failed to create host output directory {}: {}",
+                    host_path.display(),
                     e
-                ))
-            })?;
+                )));
+            }
         }
 
-        fs::create_dir_all(&full_sandbox_path).map_err(|e| {
-            PurpleError::FilesystemError(format!(
+        if let Some(parent) = full_sandbox_path.parent()
+            && let Err(e) = fs::create_dir_all(parent)
+        {
+            transaction.rollback();
+            return Err(PurpleError::FilesystemError(format!(
+                "Failed to create parent directory {}: {}",
+                parent.display(),
+                e
+            )));
+        }
+
+        if let Err(e) = fs::create_dir_all(&full_sandbox_path) {
+            transaction.rollback();
+            return Err(PurpleError::FilesystemError(format!(
                 "Failed to create output directory {}: {}",
                 full_sandbox_path.display(),
                 e
-            ))
-        })?;
+            )));
+        }
 
         // Bind mount output directory
-        mount(
+        if let Err(e) = mount(
             Some(host_path.as_path()),
             &full_sandbox_path,
             None::<&str>,
             MsFlags::MS_BIND,
             None::<&str>,
-        )
-        .map_err(|e| {
-            PurpleError::FilesystemError(format!(
+        ) {
+            transaction.rollback();
+            return Err(PurpleError::FilesystemError(format!(
                 "Failed to bind mount output directory {} to {}: {}",
                 host_path.display(),
                 full_sandbox_path.display(),
                 e
-            ))
-        })?;
+            )));
+        }
+        transaction.add_mount(full_sandbox_path.clone());
     }
 
     // Mount essential filesystem
     // CORRECT: Mount fresh procfs
-    mount(
+    let proc_path = Path::new(sandbox_root).join("proc");
+    if let Err(e) = mount(
         Some("proc"),
-        &Path::new(sandbox_root).join("proc"),
+        &proc_path,
         Some("proc"),
         MsFlags::empty(),
         None::<&str>,
-    )
-    .map_err(|e| PurpleError::FilesystemError(format!("Failed to mount proc: {}", e)))?;
+    ) {
+        transaction.rollback();
+        return Err(PurpleError::FilesystemError(format!(
+            "Failed to mount proc: {}",
+            e
+        )));
+    }
+    transaction.add_mount(proc_path);
 
     // SECURE: Create minimal /dev with only essential devices
-    setup_secure_dev(sandbox_root)?;
+    if let Err(e) = setup_secure_dev(sandbox_root) {
+        transaction.rollback();
+        return Err(e);
+    }
 
     // SECURE: Mount /sys as read-only with security restrictions
-    setup_secure_sys(sandbox_root)?;
+    if let Err(e) = setup_secure_sys(sandbox_root) {
+        transaction.rollback();
+        return Err(e);
+    }
 
     // Setup DNS configuration for network access
     if !policy.network.isolated {
         let resolv_conf_path = Path::new(sandbox_root).join("etc/resolv.conf");
-        if let Some(parent) = resolv_conf_path.parent() {
-            fs::create_dir_all(parent).map_err(|e| {
-                PurpleError::FilesystemError(format!(
-                    "Failed to create DNS config directory {}: {}",
-                    parent.display(),
-                    e
-                ))
-            })?;
+        if let Some(parent) = resolv_conf_path.parent()
+            && let Err(e) = fs::create_dir_all(parent)
+        {
+            transaction.rollback();
+            return Err(PurpleError::FilesystemError(format!(
+                "Failed to create DNS config directory {}: {}",
+                parent.display(),
+                e
+            )));
         }
 
         // Configurable DNS servers with validation
@@ -335,31 +433,42 @@ pub fn setup_filesystem(policy: &CompiledPolicy, sandbox_root: &Path) -> Result<
         }
 
         // Validate DNS config path for symlinks before writing
-        validate_path_no_symlinks(&resolv_conf_path)?;
+        if let Err(e) = validate_path_no_symlinks(&resolv_conf_path) {
+            transaction.rollback();
+            return Err(PurpleError::FilesystemError(format!(
+                "DNS config path validation failed: {}",
+                e
+            )));
+        }
 
-        fs::write(&resolv_conf_path, resolv_conf_content).map_err(|e| {
-            PurpleError::FilesystemError(format!("Failed to write DNS configuration: {}", e))
-        })?;
+        if let Err(e) = fs::write(&resolv_conf_path, resolv_conf_content) {
+            transaction.rollback();
+            return Err(PurpleError::FilesystemError(format!(
+                "Failed to write DNS configuration: {}",
+                e
+            )));
+        }
         // Log the configured DNS servers for debugging
         log::info!("Configured DNS resolvers: {}", nameservers.join(", "));
 
         // Helpful message about configuration
         if nameservers == vec!["8.8.8.8".to_string(), "8.8.4.4".to_string()] {
             log::info!(
-                "💡 Tip: Configure custom DNS servers in your policy using network.dns_servers"
+                "Tip: Configure custom DNS servers in your policy using network.dns_servers"
             );
         }
     }
 
     // Change root to the sandbox directory
     log::info!("Changing root to {}", sandbox_root.display());
-    chroot(sandbox_root).map_err(|e| {
-        PurpleError::FilesystemError(format!(
+    if let Err(e) = chroot(sandbox_root) {
+        transaction.rollback();
+        return Err(PurpleError::FilesystemError(format!(
             "Failed to chroot to {}: {}",
             sandbox_root.display(),
             e
-        ))
-    })?;
+        )));
+    }
 
     // Change working directory
     if let Err(e) = std::env::set_current_dir(&policy.filesystem.working_dir) {
@@ -474,34 +583,38 @@ fn setup_secure_dev(sandbox_root: &Path) -> Result<()> {
                 device_creation_success = false;
             }
         } else {
-            // Fallback: Create as regular file with appropriate content
+            // Fallback: Bind-mount from host instead of creating regular files
+            // This prevents DoS attacks where writing to /dev/null would fill host disk
             log::info!(
-                "Creating {} as regular file (device node creation not available)",
+                "Bind-mounting {} from host (device node creation not available)",
                 name
             );
 
-            // Create parent directory if needed
-            if let Some(parent) = device_path.parent()
-                && let Err(e) = fs::create_dir_all(parent)
-            {
-                log::warn!("Failed to create parent directory for {}: {}", name, e);
+            // Create only parent directory, NOT the mount point itself
+            #[allow(clippy::collapsible_if)]
+            if let Some(parent) = device_path.parent() {
+                if let Err(e) = fs::create_dir_all(parent) {
+                    log::warn!("Failed to create parent directory for {}: {}", name, e);
+                    device_creation_success = false;
+                    continue;
+                }
+            }
+
+            // Bind-mount from host's device node
+            let host_device = Path::new("/dev").join(name);
+            if let Err(e) = mount(
+                Some(&host_device),
+                &device_path,
+                None::<&str>,
+                MsFlags::MS_BIND,
+                None::<&str>,
+            ) {
+                log::warn!("Failed to bind-mount {} from host: {}", name, e);
                 device_creation_success = false;
                 continue;
             }
 
-            // Create file with appropriate permissions
-            if let Err(e) = fs::write(&device_path, "") {
-                log::warn!("Failed to create fallback file for {}: {}", name, e);
-                device_creation_success = false;
-                continue;
-            }
-
-            // Set permissions if possible
-            if can_change_permissions
-                && let Err(e) = fs::set_permissions(&device_path, fs::Permissions::from_mode(*mode))
-            {
-                log::debug!("Failed to set permissions on {}: {}", name, e);
-            }
+            log::debug!("Successfully bind-mounted {} from host", name);
         }
     }
 
@@ -612,7 +725,8 @@ fn create_device_node(path: &Path, mode: u32, major: u64, minor: u64) -> Result<
             // Handle permission errors gracefully
             if e == nix::Error::EPERM {
                 log::warn!(
-                    "⚠️  Insufficient permissions to create device node {} (major {}, minor {}). This is expected when running without root privileges. Device will be created as a regular file with similar behavior.",
+                    "Cannot create device node {} (major {}, minor {}) - running in user namespace without CAP_MKNOD. Creating as regular file instead. \
+                    Programs expecting full device semantics (e.g., /dev/null read/write behavior) will still work.",
                     path.display(),
                     major,
                     minor

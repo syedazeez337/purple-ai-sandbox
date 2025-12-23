@@ -286,6 +286,22 @@ pub struct CompiledPolicy {
     pub ebpf_monitoring: super::EbpfMonitoringPolicy,
 }
 
+impl Default for CompiledPolicy {
+    fn default() -> Self {
+        Self {
+            name: "default".to_string(),
+            filesystem: CompiledFilesystemPolicy::default(),
+            syscalls: CompiledSyscallPolicy::default(),
+            resources: CompiledResourcePolicy::default(),
+            capabilities: CompiledCapabilityPolicy::default(),
+            network: CompiledNetworkPolicy::default(),
+            audit: CompiledAuditPolicy::default(),
+            ai_policy: None,
+            ebpf_monitoring: super::EbpfMonitoringPolicy::default(),
+        }
+    }
+}
+
 /// Compiled filesystem rules.
 #[derive(Debug, Clone)]
 pub struct CompiledFilesystemPolicy {
@@ -303,10 +319,33 @@ pub struct CompiledSyscallPolicy {
     pub allowed_syscall_numbers: BTreeSet<i64>,
     /// Syscalls to explicitly deny when default_deny=false (allow-by-default mode)
     pub denied_syscall_numbers: BTreeSet<i64>,
+    /// Advanced syscall rules with argument filtering.
+    /// These are stored separately and applied after basic allow/deny rules.
+    #[allow(dead_code)]
+    pub advanced_rules: Vec<()>,
 }
 
-/// Compiled resource limits.
+// Advanced syscall rules are not yet implemented.
+// These structs are kept for future implementation but currently unused.
+/*
 #[derive(Debug, Clone)]
+pub struct CompiledAdvancedSyscallRule {
+    pub syscall_number: i64,
+    pub action: super::SyscallAction,
+    pub conditions: Vec<CompiledSyscallCondition>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CompiledSyscallCondition {
+    pub arg_index: usize,
+    pub op: super::ConditionOp,
+    pub value: u64,
+    pub mask: Option<u64>,
+}
+*/
+
+/// Compiled resource limits.
+#[derive(Debug, Clone, Default)]
 pub struct CompiledResourcePolicy {
     pub cpu_shares: Option<f64>,
     pub memory_limit_bytes: Option<u64>, // Parsed into bytes
@@ -327,7 +366,7 @@ impl CompiledResourcePolicy {
 }
 
 /// Compiled capability rules.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CompiledCapabilityPolicy {
     pub default_drop: bool,
     pub added_capabilities: HashSet<String>, // Linux capability names (e.g., "CAP_NET_RAW")
@@ -335,7 +374,7 @@ pub struct CompiledCapabilityPolicy {
 }
 
 /// Compiled network rules.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CompiledNetworkPolicy {
     pub isolated: bool,
     pub allowed_outgoing_ports: HashSet<u16>, // e.g., 443, 53
@@ -440,10 +479,21 @@ impl Policy {
             }
         }
 
+        // Advanced syscall rules are not yet implemented
+        if !self.syscalls.advanced_rules.is_empty() {
+            return Err(
+                "Advanced syscall rules not yet supported. Use simple allow/deny lists instead."
+                    .to_string(),
+            );
+        }
+
+        let advanced_rules = Vec::new(); // Empty vector since feature is disabled
+
         let compiled_syscalls = CompiledSyscallPolicy {
             default_deny: self.syscalls.default_deny,
             allowed_syscall_numbers,
             denied_syscall_numbers,
+            advanced_rules,
         };
 
         // Validate syscall policy - empty allow list with default_deny makes sandbox unusable
@@ -557,6 +607,39 @@ impl Policy {
             ai_policy: compiled_ai_policy,
             ebpf_monitoring: self.ebpf_monitoring.clone(),
         })
+    }
+}
+
+// Default implementations for compiled policy structs
+impl Default for CompiledFilesystemPolicy {
+    fn default() -> Self {
+        Self {
+            immutable_mounts: Vec::new(),
+            scratch_dirs: Vec::new(),
+            output_mounts: Vec::new(),
+            working_dir: PathBuf::from("/tmp"),
+        }
+    }
+}
+
+impl Default for CompiledSyscallPolicy {
+    fn default() -> Self {
+        Self {
+            default_deny: true,
+            allowed_syscall_numbers: BTreeSet::new(),
+            denied_syscall_numbers: BTreeSet::new(),
+            advanced_rules: Vec::new(),
+        }
+    }
+}
+
+impl Default for CompiledAuditPolicy {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            log_path: PathBuf::from("./audit.log"),
+            detail_level: HashSet::new(),
+        }
     }
 }
 
