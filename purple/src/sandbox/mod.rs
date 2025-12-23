@@ -197,10 +197,8 @@ fn setup_parent_signal_handlers(child_pid: nix::unistd::Pid) {
 }
 
 impl Sandbox {
-    /// Sets up signal handlers for the child process with thread-based fallback
+    /// Sets up signal handlers for the child process
     fn setup_child_signal_handlers(&self) {
-        use std::thread;
-
         log::info!("Child: Setting up signal handlers for graceful cleanup");
 
         // Store sandbox_id for signal handler access
@@ -226,18 +224,12 @@ impl Sandbox {
             }
             Err(e) => {
                 log::warn!(
-                    "Child: ctrlc handler failed: {}. Using thread-based signal monitoring...",
+                    "Child: ctrlc handler failed: {}. Signal handling in limited mode (no thread spawning in child after fork).",
                     e
                 );
-
-                // Fallback: Monitor via thread (limited functionality)
-                thread::spawn(move || {
-                    log::info!(
-                        "Child: Thread-based signal monitoring active (limited functionality)"
-                    );
-                });
-
-                log::info!("Child: Signal handling in fallback mode (limited)");
+                // Note: We cannot spawn threads in child process after fork in Rust.
+                // The signal handling will be limited - we rely on the parent to send signals.
+                log::info!("Child: Signal handling in fallback mode (parent will handle signals)");
             }
         }
     }
@@ -642,6 +634,12 @@ impl Sandbox {
 
                 // 8. Exec
                 log::info!("Child: Executing actual command...");
+
+                // Validate command is not empty
+                if self.agent_command.is_empty() {
+                    log::error!("No command specified for execution");
+                    self.child_cleanup_and_exit(1);
+                }
 
                 let prog = CString::new(self.agent_command[0].clone()).map_err(|e| {
                     PurpleError::CommandError(format!(

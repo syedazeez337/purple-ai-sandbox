@@ -13,8 +13,10 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Initialize Aiguard environment
+    /// Initialize Purple AI Sandbox environment
     Init,
+    /// Display version information
+    Version,
     /// Manage profiles
     Profile {
         #[command(subcommand)]

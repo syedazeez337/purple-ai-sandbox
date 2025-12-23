@@ -4,34 +4,41 @@
 
 name: "development"
 description: "Default development policy with balanced security"
-version: "1.0"
 
 filesystem:
-  working_directory: "/tmp/purple-work"
+  working_dir: "/tmp/purple-work"
   immutable_paths:
     - host_path: "/etc/passwd"
       sandbox_path: "/etc/passwd"
     - host_path: "/etc/group"
       sandbox_path: "/etc/group"
-  scratch_dirs:
+  scratch_paths:
     - "/tmp/purple-scratch"
 
+syscalls:
+  default_deny: false
+  deny:
+    - "ptrace"
+    - "kill"
+    - "reboot"
+    - "mount"
+    - "umount"
+
 resources:
-  memory_limit_mb: 1024
-  cpu_shares: 512
+  cpu_shares: 0.5
+  memory_limit_bytes: "1024M"
   pids_limit: 100
-  io_limit_mb_per_sec: 50
+
+capabilities:
+  default_drop: true
+  add: []
 
 network:
   isolated: false
-  allowed_outgoing_ports:
-    - 80
-    - 443
-    - 8080
-  blocked_ips_v4:
-    - "0.0.0.0"
-  blocked_ips_v6:
-    - "::1"
+  allow_outgoing:
+    - "80"
+    - "443"
+    - "8080"
 
 audit:
   enabled: true
@@ -40,12 +47,3 @@ audit:
     - "syscalls"
     - "network"
     - "filesystem"
-
-syscalls:
-  default_action: "allow"
-  deny_list:
-    - "ptrace"
-    - "kill"
-    - "reboot"
-    - "mount"
-    - "umount"

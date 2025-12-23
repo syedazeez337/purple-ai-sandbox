@@ -102,7 +102,6 @@ resources:
   cpu_shares: 0.5
   memory_limit_bytes: "2G"
   pids_limit: 100
-  io_limit_bytes_per_sec: "100M"
   session_timeout_seconds: 3600
 
 capabilities:
@@ -115,7 +114,6 @@ network:
     - "443"
     - "80"
     - "53"
-  allow_incoming: []
 
 audit:
   enabled: true
