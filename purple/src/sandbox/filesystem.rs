@@ -586,6 +586,18 @@ pub fn setup_filesystem(policy: &CompiledPolicy, sandbox_root: &Path) -> Result<
         Path::new("/").join(&policy.filesystem.working_dir)
     };
 
+    // Create working directory if it doesn't exist (inside chroot)
+    if !working_dir.exists() {
+        if let Err(e) = fs::create_dir_all(&working_dir) {
+            return Err(PurpleError::FilesystemError(format!(
+                "Failed to create working directory {}: {}",
+                working_dir.display(),
+                e
+            )));
+        }
+        log::info!("Created working directory {}", working_dir.display());
+    }
+
     if let Err(e) = chdir(&working_dir) {
         return Err(PurpleError::FilesystemError(format!(
             "Failed to change working directory to {}: {}",
