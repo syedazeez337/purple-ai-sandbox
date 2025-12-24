@@ -48,6 +48,8 @@ axum = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+proptest = "1.4"
+criterion = { version = "0.5", features = ["html_reports"] }
 
 [features]
 default = []

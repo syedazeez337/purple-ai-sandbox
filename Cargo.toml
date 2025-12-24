@@ -4,7 +4,8 @@ members = [
 ]
 # Note: ebpf-probes is NOT a workspace member - it's compiled by aya-build
 # during the purple crate's build.rs when the "ebpf" feature is enabled
-resolver = "2"
+# Fuzz testing uses cargo-fuzz which requires a separate workspace
+exclude = ["fuzz"]
 
 [workspace.dependencies]
 # Core dependencies

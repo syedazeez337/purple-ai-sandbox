@@ -6,3 +6,7 @@ mod test_manager;
 pub mod test_policy;
 pub mod test_sandbox;
 pub mod test_seccomp;
+
+pub mod adversarial_tests;
+pub mod fixtures;
+mod property_tests;

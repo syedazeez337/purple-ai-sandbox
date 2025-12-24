@@ -1,0 +1,52 @@
+[package]
+name = "purple-fuzz"
+version = "0.0.0"
+authors = ["Automatically generated"]
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+serde_yaml = "0.9.34"
+
+[dependencies.purple]
+path = "../purple"
+
+[[bin]]
+name = "fuzz_policy_yaml"
+path = "fuzz_targets/fuzz_policy_yaml.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_path_validation"
+path = "fuzz_targets/fuzz_path_validation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_port_parsing"
+path = "fuzz_targets/fuzz_port_parsing.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_memory_parsing"
+path = "fuzz_targets/fuzz_memory_parsing.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_seccomp_rules"
+path = "fuzz_targets/fuzz_seccomp_rules.rs"
+test = false
+doc = false
+bench = false
