@@ -95,7 +95,6 @@ syscalls:
     - "sysinfo"
     - "getrandom"
     - "arch_prctl"
-    - "syscall"
 
     # Current working directory
     - "getcwd"

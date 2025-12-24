@@ -22,7 +22,7 @@ syscalls:
     - "kill"
     - "reboot"
     - "mount"
-    - "umount"
+    - "umount2"
 
 resources:
   cpu_shares: 0.5
