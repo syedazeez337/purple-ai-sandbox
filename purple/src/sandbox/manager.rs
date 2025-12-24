@@ -357,6 +357,12 @@ impl SandboxManager {
     }
 }
 
+impl Default for SandboxManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Resource pool status information
 #[derive(Debug)]
 #[allow(dead_code)]

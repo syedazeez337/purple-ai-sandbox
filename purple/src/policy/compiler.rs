@@ -32,7 +32,11 @@ const FORBIDDEN_HOST_PREFIXES: &[&str] = &[
 /// For host paths: relative paths are resolved against the current working directory.
 /// This allows policies to use convenient relative paths like "./output" while
 /// maintaining security by validating the resolved absolute path.
-fn validate_path(path: &Path, path_type: &str, is_host_path: bool) -> Result<PathBuf, String> {
+pub(crate) fn validate_path(
+    path: &Path,
+    path_type: &str,
+    is_host_path: bool,
+) -> Result<PathBuf, String> {
     // Resolve relative paths to absolute for host paths
     let resolved_path = if is_host_path && !path.is_absolute() {
         // Get current working directory and resolve the relative path
@@ -138,7 +142,7 @@ fn validate_sandbox_path(path: &Path, path_type: &str) -> Result<PathBuf, String
 
 /// Parses a memory size string (e.g., "2G", "512M", "1073741824") into bytes
 /// Returns an error for invalid formats instead of silently failing
-fn parse_memory_size(size_str: &str) -> Result<u64, String> {
+pub(crate) fn parse_memory_size(size_str: &str) -> Result<u64, String> {
     let size_str = size_str.trim();
 
     if size_str.is_empty() {
@@ -237,7 +241,7 @@ fn parse_io_rate(rate_str: &str) -> Result<u64, String> {
 
 /// Parses a port string into a valid port number (1-65535)
 /// Returns an error for invalid formats or out-of-range values
-fn parse_port(port_str: &str) -> Result<u16, String> {
+pub(crate) fn parse_port(port_str: &str) -> Result<u16, String> {
     let port_str = port_str.trim();
 
     if port_str.is_empty() {

@@ -1,11 +1,11 @@
-mod ai;
+pub mod ai;
 // mod api; // API module disabled - requires more implementation work
-mod cli;
-mod error;
-mod policy;
-mod sandbox;
+pub mod cli;
+pub mod error;
+pub mod policy;
+pub mod sandbox;
 #[macro_use]
-mod logging;
+pub mod logging;
 
 #[cfg(test)]
 mod tests;
