@@ -1,49 +1,49 @@
-# Purple AI Sandbox - Default Development Policy
-# This policy provides a balanced approach for AI development
-# with reasonable security constraints while allowing flexibility
-
-name: "development"
-description: "Default development policy with balanced security"
-
+name: development
+description: Default development policy with balanced security
 filesystem:
-  working_dir: "/tmp/purple-work"
+  working_dir: /tmp/purple-work
   immutable_paths:
-    - host_path: "/etc/passwd"
-      sandbox_path: "/etc/passwd"
-    - host_path: "/etc/group"
-      sandbox_path: "/etc/group"
+  - host_path: /usr/bin
+    sandbox_path: /usr/bin
+  - host_path: /bin
+    sandbox_path: /bin
+  - host_path: /lib
+    sandbox_path: /lib
+  - host_path: /lib64
+    sandbox_path: /lib64
+  - host_path: /usr/lib
+    sandbox_path: /usr/lib
+  - host_path: /etc/passwd
+    sandbox_path: /etc/passwd
+  - host_path: /etc/group
+    sandbox_path: /etc/group
   scratch_paths:
-    - "/tmp/purple-scratch"
-
+  - /tmp/purple-scratch
 syscalls:
   default_deny: false
   deny:
-    - "ptrace"
-    - "kill"
-    - "reboot"
-    - "mount"
-    - "umount2"
-
+  - ptrace
+  - kill
+  - reboot
+  - mount
+  - umount2
 resources:
   cpu_shares: 0.5
-  memory_limit_bytes: "1024M"
+  memory_limit_bytes: 1024M
   pids_limit: 100
-
 capabilities:
   default_drop: true
   add: []
-
 network:
   isolated: false
   allow_outgoing:
-    - "80"
-    - "443"
-    - "8080"
-
+  - '80'
+  - '443'
+  - '8080'
 audit:
   enabled: true
-  log_path: "./logs/audit.log"
+  log_path: /tmp/purple/audit/development.log
   detail_level:
-    - "syscalls"
-    - "network"
-    - "filesystem"
+  - syscalls
+  - network
+  - filesystem
