@@ -22,6 +22,7 @@ pub mod filesystem;
 pub mod linux_namespaces;
 pub mod network;
 pub mod seccomp;
+pub mod syscall_table;
 
 #[cfg(feature = "ebpf")]
 pub mod ebpf;

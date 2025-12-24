@@ -1,6 +1,6 @@
 // src/tests/test_seccomp.rs
 
-use crate::sandbox::seccomp::{get_syscall_number, resolve_syscall_names};
+use crate::sandbox::syscall_table::{get_syscall_number, resolve_syscall_names};
 
 #[test]
 fn test_syscall_number_mapping() {
