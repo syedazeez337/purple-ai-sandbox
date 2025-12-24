@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["apply_advanced_rules","apply_seccomp_filter","create_arg_compare","get_compare_op","get_comparison_value","get_syscall_number","resolve_syscall_names"]};
+window.SIDEBAR_ITEMS = {"fn":["apply_advanced_rules","apply_seccomp_filter","create_arg_compare","get_compare_op","get_comparison_value"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["SYSCALL_TABLE"],"fn":["get_syscall_number","resolve_syscall_names"],"static":["SYSCALL_TABLE_INSTANCE"],"struct":["SyscallTable"]};
