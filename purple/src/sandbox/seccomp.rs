@@ -1,11 +1,14 @@
 // purple/src/sandbox/seccomp.rs
+//
+// Seccomp filter implementation using libseccomp for BPF generation.
+// Syscall name → number resolution uses our custom syscall table
+// (see syscall_table.rs) for universal compatibility.
 
 use crate::error::Result;
 use crate::policy::compiler::{
     CompiledAdvancedSyscallRule, CompiledComparison, CompiledSyscallPolicy,
 };
 use libseccomp::{ScmpAction, ScmpArgCompare, ScmpCompareOp, ScmpFilterContext, ScmpSyscall};
-use std::collections::BTreeSet;
 
 /// Creates a ScmpArgCompare from our internal comparison type
 fn create_arg_compare(arg_index: u32, comparison: &CompiledComparison) -> ScmpArgCompare {
@@ -180,34 +183,4 @@ fn apply_advanced_rules(
     }
 
     Ok(())
-}
-
-/// Syscall name to number mapping for common syscalls
-/// Note: Kept for potential future dynamic syscall resolution
-#[allow(dead_code)]
-/// Syscall name to number mapping - uses libseccomp's built-in database
-/// This is more reliable than hardcoded mappings and works across different kernel versions
-pub fn get_syscall_number(name: &str) -> Option<i64> {
-    match ScmpSyscall::from_name(name) {
-        Ok(syscall) => Some(i32::from(syscall) as i64),
-        Err(_) => {
-            log::debug!("Failed to resolve syscall name: {}", name);
-            None
-        }
-    }
-}
-
-/// Converts syscall names to numbers for the policy
-/// Note: Kept for potential future dynamic syscall resolution
-#[allow(dead_code)]
-pub fn resolve_syscall_names(names: &[String]) -> BTreeSet<i64> {
-    let mut numbers = BTreeSet::new();
-    for name in names {
-        if let Some(num) = get_syscall_number(name) {
-            numbers.insert(num);
-        } else {
-            log::warn!("Unknown syscall name: {}", name);
-        }
-    }
-    numbers
 }

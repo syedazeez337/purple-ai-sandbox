@@ -472,7 +472,7 @@ impl Policy {
         let mut denied_syscall_numbers = BTreeSet::new();
 
         for sname in &self.syscalls.allow {
-            if let Some(num) = crate::sandbox::seccomp::get_syscall_number(sname) {
+            if let Some(num) = crate::sandbox::syscall_table::get_syscall_number(sname) {
                 allowed_syscall_numbers.insert(num);
             } else {
                 return Err(format!("Unknown syscall: {}", sname));
@@ -483,7 +483,7 @@ impl Policy {
         // - default_deny=true: deny list removes syscalls from allowed list
         // - default_deny=false: deny list explicitly blocks specific syscalls
         for sname in &self.syscalls.deny {
-            if let Some(num) = crate::sandbox::seccomp::get_syscall_number(sname) {
+            if let Some(num) = crate::sandbox::syscall_table::get_syscall_number(sname) {
                 if self.syscalls.default_deny {
                     // In deny-by-default mode, remove from allowed list
                     allowed_syscall_numbers.remove(&num);
@@ -500,7 +500,8 @@ impl Policy {
         let mut advanced_rules = Vec::new();
         for rule in &self.syscalls.advanced_rules {
             // Resolve syscall name to number
-            let syscall_num = match crate::sandbox::seccomp::get_syscall_number(&rule.syscall) {
+            let syscall_num = match crate::sandbox::syscall_table::get_syscall_number(&rule.syscall)
+            {
                 Some(num) => num,
                 None => {
                     return Err(format!(
