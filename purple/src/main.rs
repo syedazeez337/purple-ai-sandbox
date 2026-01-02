@@ -6,12 +6,13 @@ pub mod policy;
 pub mod sandbox;
 #[macro_use]
 pub mod logging;
+pub mod correlation;
 
 #[cfg(test)]
 mod tests;
 
 use clap::Parser;
-use cli::{Cli, Commands, ProfileCommands, SandboxAction};
+use cli::{Cli, Commands, ProfileCommands, SandboxAction, CorrelationCommands};
 use error::PurpleError;
 use log::LevelFilter;
 use logging::init_logging;
@@ -1115,6 +1116,148 @@ audit:
             }
 
             println!("✅ Audit report generation complete!");
+        }
+        Commands::Correlation { command } => {
+            use correlation::cli::{CorrelationCli, CorrelationCommands};
+
+            let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+            rt.block_on(async {
+                match command {
+                    CorrelationCommands::Start { profile, sandbox_id, threat_intel, attack } => {
+                        let _ = threat_intel;
+                        let _ = attack;
+                        let config = correlation::models::CorrelationConfig::default();
+                        let engine = correlation::engine::CorrelationEngine::new(config);
+                        let session_id = engine.start_session(profile.clone(), sandbox_id.clone());
+                        println!("\n============================================");
+                        println!("Correlation Session Started");
+                        println!("============================================");
+                        println!("Session ID: {}", session_id);
+                        println!("Profile: {}", profile);
+                        if let Some(sid) = sandbox_id {
+                            println!("Sandbox ID: {}", sid);
+                        }
+                        println!("Status: Active");
+                        println!("============================================\n");
+                    }
+                    CorrelationCommands::Status { session_id, json: _ } => {
+                        let config = correlation::models::CorrelationConfig::default();
+                        let engine = correlation::engine::CorrelationEngine::new(config);
+                        let session = engine.get_session(&session_id);
+                        if let Some(s) = session {
+                            println!("\n============================================");
+                            println!("Session Status: {}", session_id);
+                            println!("============================================");
+                            println!("Profile: {}", s.profile_name);
+                            println!("Status: {:?}", s.status);
+                            println!("Events: {}", s.events.len());
+                            println!("Anomalies: {}", s.anomalies.len());
+                            println!("Risk Score: {:.1}", s.risk_score.cumulative_score);
+                            println!("============================================\n");
+                        } else {
+                            println!("Session not found: {}", session_id);
+                        }
+                    }
+                    CorrelationCommands::Event { session_id, event_type, pid, details, category, comm } => {
+                        let config = correlation::models::CorrelationConfig::default();
+                        let engine = correlation::engine::CorrelationEngine::new(config);
+                        let event = correlation::models::RawEvent::new(
+                            event_type, pid, details, category.parse().unwrap_or(correlation::models::EventCategory::Syscall),
+                        );
+                        engine.process_event(&session_id, event).await;
+                        println!("Event submitted to session: {}", session_id);
+                    }
+                    CorrelationCommands::Intent { session_id, prompt, expected_actions, confidence } => {
+                        let config = correlation::models::CorrelationConfig::default();
+                        let engine = correlation::engine::CorrelationEngine::new(config);
+                        let intent = correlation::models::LlmIntent::new(prompt, expected_actions, String::new());
+                        intent.confidence = confidence;
+                        engine.register_intent(&session_id, intent).await;
+                        println!("Intent registered for session: {}", session_id);
+                    }
+                    CorrelationCommands::Complete { session_id, format, save } => {
+                        let _ = save;
+                        let config = correlation::models::CorrelationConfig::default();
+                        let engine = correlation::engine::CorrelationEngine::new(config);
+                        let session = engine.complete_session(&session_id).await;
+                        if let Some(s) = session {
+                            if format == "json" {
+                                println!("{}", serde_json::to_string_pretty(&s).unwrap());
+                            } else {
+                                println!("\n============================================");
+                                println!("Correlation Session Report");
+                                println!("============================================");
+                                println!("Session ID: {}", s.session_id);
+                                println!("Profile: {}", s.profile_name);
+                                println!("Events: {}", s.events.len());
+                                println!("Anomalies: {}", s.anomalies.len());
+                                println!("Risk Score: {:.1}/100 ({:?})", 
+                                    s.risk_score.cumulative_score, s.risk_score.risk_level);
+                                println!("============================================\n");
+                            }
+                        } else {
+                            println!("Session not found: {}", session_id);
+                        }
+                    }
+                    CorrelationCommands::Report { session_id, format, output } => {
+                        let config = correlation::models::CorrelationConfig::default();
+                        let engine = correlation::engine::CorrelationEngine::new(config);
+                        let session = engine.get_session(&session_id);
+                        if let Some(s) = session {
+                            if format == "json" {
+                                println!("{}", serde_json::to_string_pretty(&s).unwrap());
+                            } else {
+                                println!("\n============================================");
+                                println!("Correlation Report for Session: {}", session_id);
+                                println!("============================================");
+                                println!("Events: {}", s.events.len());
+                                println!("Anomalies: {}", s.anomalies.len());
+                                println!("Risk: {:?} ({:.1})", s.risk_score.risk_level, s.risk_score.cumulative_score);
+                                println!("ATT&CK Techniques: {}", s.attack_coverage.len());
+                                for t in &s.attack_coverage {
+                                    println!("  - {}", t);
+                                }
+                                println!("============================================\n");
+                            }
+                        } else {
+                            println!("Session not found: {}", session_id);
+                        }
+                    }
+                    CorrelationCommands::List => {
+                        let config = correlation::models::CorrelationConfig::default();
+                        let engine = correlation::engine::CorrelationEngine::new(config);
+                        let sessions = engine.get_active_sessions();
+                        println!("\nActive Correlation Sessions:");
+                        println!("============================");
+                        for session_id in sessions {
+                            println!("  - {}", session_id);
+                        }
+                        println!("============================");
+                        println!("Total: {} active sessions\n", sessions.len());
+                    }
+                    CorrelationCommands::Rules { action } => {
+                        use correlation::rules::RulesEngine;
+                        let rules_engine = correlation::rules::RulesEngine::new(true);
+                        match action {
+                            correlation::cli::RuleCommands::List => {
+                                let rules = rules_engine.get_all_rules();
+                                println!("\nDetection Rules:");
+                                println!("================");
+                                for rule in &rules {
+                                    println!("  [{}] {}", 
+                                        if rule.enabled { "ENABLED" } else { "DISABLED" },
+                                        rule.name);
+                                }
+                                println!("================");
+                                println!("Total: {} rules\n", rules.len());
+                            }
+                            correlation::cli::RuleCommands::Load { directory } => {
+                                let _ = rules_engine.load_rules_from_directory(std::path::PathBuf::from(directory));
+                            }
+                        }
+                    }
+                }
+            });
         }
     }
 }
