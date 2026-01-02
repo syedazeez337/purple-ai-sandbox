@@ -81,6 +81,9 @@ pub struct RunArgs {
     /// Profile to use for running the AI agent
     #[arg(long)]
     pub profile: String,
+    /// Use direct sandbox execution (bypass manager)
+    #[arg(long)]
+    pub direct: bool,
     /// Command to execute with the AI agent
     #[arg(raw = true)] // This captures all subsequent arguments as the command
     pub command: Vec<String>,

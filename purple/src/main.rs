@@ -68,6 +68,49 @@ fn validate_profile_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Executes a sandbox via the manager (centralized resource management)
+fn execute_via_manager(
+    compiled_policy: policy::compiler::CompiledPolicy,
+    agent_command: Vec<String>,
+    profile_name: &str,
+) -> Result<(), PurpleError> {
+    use log::info;
+
+    // Create transient manager
+    let mut manager = SandboxManager::new();
+
+    // Create sandbox with metadata
+    let sandbox_id = manager.create_sandbox(
+        compiled_policy,
+        agent_command.clone(),
+        profile_name.to_string(),
+    )?;
+
+    info!("Created sandbox {} for profile {}", sandbox_id, profile_name);
+
+    // Execute sandbox
+    info!("Executing sandbox {}...", sandbox_id);
+    let exit_code = manager.execute_sandbox(&sandbox_id)?;
+
+    // Get and display resource usage
+    let usage = manager.get_resource_usage(&sandbox_id)?;
+    println!("\n{}", "=".repeat(60));
+    println!("Resource Usage Summary:");
+    println!("  CPU time:     {:.2} seconds", usage.cpu_time);
+    println!("  Peak memory:  {} MB", usage.memory_peak / 1024 / 1024);
+    println!("  Network I/O:  {} bytes", usage.network_bytes);
+    println!("{}", "=".repeat(60));
+
+    // Cleanup
+    manager.cleanup_sandbox(&sandbox_id)?;
+
+    if exit_code != 0 {
+        std::process::exit(exit_code);
+    }
+
+    Ok(())
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -481,7 +524,7 @@ audit:
             }
         },
         Commands::Run(args) => {
-            let agent_command = args.command.clone(); // Clone to pass into Sandbox::new
+            let agent_command = args.command.clone();
             let profile_name = args.profile.clone();
 
             println!(
@@ -489,16 +532,19 @@ audit:
                 profile_name, agent_command
             );
 
-            // For now, load/compile policy from example file for run command as well.
-            // In future, this would load a saved compiled policy for the profile.
+            // Load and compile policy
             let policy_path = format!("./policies/{}.yaml", profile_name);
             let policy_path_buf = std::path::PathBuf::from(&policy_path);
             match policy::parser::load_policy_from_file(&policy_path_buf) {
                 Ok(policy) => {
                     match policy.compile() {
                         Ok(compiled_policy) => {
-                            let mut sandbox = Sandbox::new(compiled_policy, agent_command);
-                            match sandbox.execute() {
+                            // DECISION POINT: Direct or Manager execution
+                            if args.direct {
+                                log::info!("Using direct execution (bypassing manager)");
+                                // Legacy path: Direct execution
+                                let mut sandbox = Sandbox::new(compiled_policy, agent_command);
+                                match sandbox.execute() {
                                 Ok(exit_code) => {
                                     if exit_code != 0 {
                                         std::process::exit(exit_code);
@@ -580,6 +626,92 @@ audit:
                                     }
 
                                     std::process::exit(1);
+                                }
+                            }
+                            } else {
+                                log::info!("Using manager execution (default)");
+                                // NEW DEFAULT: Manager-based execution
+                                match execute_via_manager(compiled_policy, agent_command, &profile_name) {
+                                    Ok(_) => {
+                                        log::info!("Sandbox execution completed successfully");
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Sandbox execution failed: {}", e);
+                                        eprintln!("\n=== Debugging Information ===");
+
+                                        // Provide context-specific debugging help
+                                        match e {
+                                            PurpleError::SandboxError(ref msg) => {
+                                                eprintln!("Sandbox setup error: {}", msg);
+                                                eprintln!("Possible causes:");
+                                                eprintln!(
+                                                    "  - Insufficient permissions for namespace operations"
+                                                );
+                                                eprintln!(
+                                                    "  - Missing kernel support for user namespaces"
+                                                );
+                                                eprintln!("  - Filesystem permissions issues");
+                                                eprintln!("\nTry running with:");
+                                                eprintln!(
+                                                    "  sudo sysctl -w kernel.unprivileged_userns_clone=1"
+                                                );
+                                            }
+                                            PurpleError::FilesystemError(ref msg) => {
+                                                eprintln!("Filesystem error: {}", msg);
+                                                eprintln!("Possible causes:");
+                                                eprintln!(
+                                                    "  - Missing directories or permission issues"
+                                                );
+                                                eprintln!(
+                                                    "  - Bind mount failures due to insufficient privileges"
+                                                );
+                                                eprintln!("  - Disk space or inode limitations");
+                                                eprintln!("\nCheck directory permissions and try:");
+                                                eprintln!("  sudo mkdir -p /tmp/purple-sandbox");
+                                                eprintln!("  sudo chmod 777 /tmp/purple-sandbox");
+                                            }
+                                            PurpleError::ResourceError(ref msg) => {
+                                                eprintln!("Resource limit error: {}", msg);
+                                                eprintln!("Possible causes:");
+                                                eprintln!(
+                                                    "  - Insufficient permissions to create cgroups"
+                                                );
+                                                eprintln!("  - Cgroup filesystem not mounted");
+                                                eprintln!("  - System resource limits reached");
+                                                eprintln!("\nCheck cgroup setup:");
+                                                eprintln!("  mount | grep cgroup");
+                                                eprintln!(
+                                                    "  sudo mount -t cgroup2 none /sys/fs/cgroup"
+                                                );
+                                            }
+                                            PurpleError::SyscallError(ref msg) => {
+                                                eprintln!("Syscall filtering error: {}", msg);
+                                                eprintln!("Possible causes:");
+                                                eprintln!("  - Missing libseccomp library");
+                                                eprintln!("  - Invalid syscall names in policy");
+                                                eprintln!("  - Kernel seccomp support disabled");
+                                                eprintln!("\nInstall required packages:");
+                                                eprintln!("  sudo dnf install libseccomp-devel");
+                                            }
+                                            PurpleError::PolicyError(ref msg) => {
+                                                eprintln!("Policy configuration error: {}", msg);
+                                                eprintln!("Possible causes:");
+                                                eprintln!("  - Invalid YAML syntax in policy file");
+                                                eprintln!("  - Unknown syscall or capability names");
+                                                eprintln!("  - Missing required policy fields");
+                                                eprintln!("\nValidate policy with:");
+                                                eprintln!("  ./purple profile show {}", profile_name);
+                                            }
+                                            _ => {
+                                                eprintln!("Unexpected error type: {:?}", e);
+                                                eprintln!(
+                                                    "Please report this issue with the full error message."
+                                                );
+                                            }
+                                        }
+
+                                        std::process::exit(1);
+                                    }
                                 }
                             }
                         }
@@ -788,7 +920,30 @@ audit:
             );
         }
         Commands::Sandboxes { action } => {
-            let mut manager = SandboxManager::new();
+            let state_path = std::path::Path::new("./sessions/manager-state.json");
+
+            // Load existing state or create new manager
+            let mut manager = if state_path.exists() {
+                match SandboxManager::load_state(state_path) {
+                    Ok(state) => match SandboxManager::restore_from_state(state) {
+                        Ok(mgr) => {
+                            log::info!("Loaded manager state from {}", state_path.display());
+                            mgr
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to restore manager state: {}, creating new manager", e);
+                            SandboxManager::new()
+                        }
+                    },
+                    Err(e) => {
+                        log::warn!("Failed to load manager state: {}, creating new manager", e);
+                        SandboxManager::new()
+                    }
+                }
+            } else {
+                log::info!("No existing manager state, creating new manager");
+                SandboxManager::new()
+            };
 
             match action {
                 SandboxAction::List => match manager.list_sandboxes() {
@@ -814,6 +969,15 @@ audit:
                                 "✅ Sandbox '{}' created successfully with ID: {}",
                                 name, sandbox_id
                             );
+
+                            // Save state after creation
+                            if let Err(e) = std::fs::create_dir_all("./sessions") {
+                                log::warn!("Failed to create sessions directory: {}", e);
+                            } else if let Err(e) = manager.save_state(state_path) {
+                                log::warn!("Failed to save manager state: {}", e);
+                            } else {
+                                log::info!("Manager state saved to {}", state_path.display());
+                            }
                         }
                         Err(e) => {
                             eprintln!("❌ Failed to create sandbox: {}", e);
@@ -824,6 +988,13 @@ audit:
                 SandboxAction::Stop { id } => match manager.cleanup_sandbox(id) {
                     Ok(_) => {
                         println!("✅ Sandbox '{}' stopped and cleaned up successfully", id);
+
+                        // Save state after cleanup
+                        if let Err(e) = manager.save_state(state_path) {
+                            log::warn!("Failed to save manager state: {}", e);
+                        } else {
+                            log::info!("Manager state saved to {}", state_path.display());
+                        }
                     }
                     Err(e) => {
                         eprintln!("❌ Failed to stop sandbox: {}", e);

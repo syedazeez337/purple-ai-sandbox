@@ -598,6 +598,76 @@ impl CgroupManager {
         );
         Ok(())
     }
+
+    /// Reads CPU usage statistics from cgroup
+    pub fn get_cpu_stats(&self) -> Result<f64> {
+        let cpu_stat_path = self.cgroup_path.join("cpu.stat");
+
+        let content = fs::read_to_string(&cpu_stat_path).map_err(|e| {
+            crate::error::PurpleError::ResourceError(format!("Failed to read cpu.stat: {}", e))
+        })?;
+
+        // Parse usage_usec value
+        for line in content.lines() {
+            if line.starts_with("usage_usec") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() == 2 {
+                    let usec: u64 = parts[1].parse().map_err(|e| {
+                        crate::error::PurpleError::ResourceError(format!(
+                            "Failed to parse cpu usage: {}",
+                            e
+                        ))
+                    })?;
+                    return Ok(usec as f64 / 1_000_000.0); // Convert to seconds
+                }
+            }
+        }
+
+        Err(crate::error::PurpleError::ResourceError(
+            "usage_usec not found in cpu.stat".to_string(),
+        ))
+    }
+
+    /// Reads peak memory usage from cgroup
+    pub fn get_memory_peak(&self) -> Result<u64> {
+        let mem_peak_path = self.cgroup_path.join("memory.peak");
+
+        let content = fs::read_to_string(&mem_peak_path).map_err(|e| {
+            crate::error::PurpleError::ResourceError(format!("Failed to read memory.peak: {}", e))
+        })?;
+
+        content.trim().parse::<u64>().map_err(|e| {
+            crate::error::PurpleError::ResourceError(format!("Failed to parse memory peak: {}", e))
+        })
+    }
+
+    /// Reads I/O statistics from cgroup
+    pub fn get_io_stats(&self) -> Result<u64> {
+        let io_stat_path = self.cgroup_path.join("io.stat");
+
+        let content: String = fs::read_to_string(&io_stat_path).map_err(|e| {
+            crate::error::PurpleError::ResourceError(format!("Failed to read io.stat: {}", e))
+        })?;
+
+        let mut total_bytes = 0u64;
+
+        // Parse rbytes and wbytes for all devices
+        for line in content.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            for part in parts.iter() {
+                if part.starts_with("rbytes=") || part.starts_with("wbytes=") {
+                    if let Some(eq_pos) = part.find('=') {
+                        let value_str = &part[eq_pos + 1..];
+                        if let Ok(bytes) = value_str.parse::<u64>() {
+                            total_bytes += bytes;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(total_bytes)
+    }
 }
 
 /// Creates a unique sandbox ID for cgroup naming
