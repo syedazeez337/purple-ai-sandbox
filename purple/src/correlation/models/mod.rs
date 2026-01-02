@@ -18,7 +18,7 @@ pub type IntentId = String;
 pub type RiskScore = f32;
 
 /// Severity levels for events and anomalies
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Severity {
     #[serde(rename = "critical")]
     Critical,
@@ -29,13 +29,8 @@ pub enum Severity {
     #[serde(rename = "low")]
     Low,
     #[serde(rename = "informational")]
+    #[default]
     Informational,
-}
-
-impl Default for Severity {
-    fn default() -> Self {
-        Severity::Informational
-    }
 }
 
 impl Severity {
@@ -48,12 +43,28 @@ impl Severity {
             Severity::Informational => 5.0,
         }
     }
+
+    /// Convert from z-score magnitude to severity level
+    pub fn from_z_score(z_score: f64) -> Self {
+        if z_score >= 5.0 {
+            Severity::Critical
+        } else if z_score >= 3.0 {
+            Severity::High
+        } else if z_score >= 2.0 {
+            Severity::Medium
+        } else if z_score >= 1.0 {
+            Severity::Low
+        } else {
+            Severity::Informational
+        }
+    }
 }
 
 /// Event categories for classification
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum EventCategory {
     #[serde(rename = "syscall")]
+    #[default]
     Syscall,
     #[serde(rename = "file_access")]
     FileAccess,
@@ -73,12 +84,6 @@ pub enum EventCategory {
     Authentication,
     #[serde(rename = "configuration")]
     Configuration,
-}
-
-impl Default for EventCategory {
-    fn default() -> Self {
-        EventCategory::Syscall
-    }
 }
 
 /// Types of anomalies that can be detected
@@ -109,9 +114,10 @@ pub enum AnomalyType {
 }
 
 /// Recommended actions for detected anomalies
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum RecommendedAction {
     #[serde(rename = "none")]
+    #[default]
     None,
     #[serde(rename = "log")]
     Log,
@@ -125,12 +131,6 @@ pub enum RecommendedAction {
     Isolate,
     #[serde(rename = "notify_admin")]
     NotifyAdmin,
-}
-
-impl Default for RecommendedAction {
-    fn default() -> Self {
-        RecommendedAction::None
-    }
 }
 
 /// LLM Intent representation
@@ -298,6 +298,7 @@ impl Anomaly {
         severity: Severity,
         description: String,
     ) -> Self {
+        let risk_score = severity.numeric_value();
         Self {
             anomaly_id: Uuid::new_v4().to_string(),
             event_id,
@@ -308,7 +309,7 @@ impl Anomaly {
             evidence: Vec::new(),
             recommended_action: RecommendedAction::default(),
             confidence: 0.8,
-            risk_score: severity.numeric_value(),
+            risk_score,
             timestamp: now_timestamp(),
             attack_tactics: Vec::new(),
             attack_techniques: Vec::new(),

@@ -2,6 +2,7 @@
 
 use crate::error::Result;
 use crate::policy::compiler::CompiledResourcePolicy;
+use crate::sandbox::config;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -16,7 +17,7 @@ impl CgroupManager {
     /// Creates a new cgroup manager for the sandbox
     pub fn new(sandbox_id: &str) -> Self {
         let cgroup_name = format!("purple-sandbox-{}", sandbox_id);
-        let cgroup_path = PathBuf::from(format!("/sys/fs/cgroup/purple/{}", cgroup_name));
+        let cgroup_path = config::cgroup_path_for_id(sandbox_id);
 
         CgroupManager {
             cgroup_name,
@@ -80,7 +81,7 @@ impl CgroupManager {
         log::info!("Cgroup path: {}", self.cgroup_path.display());
 
         // Ensure parent cgroup directory exists and has controllers enabled
-        let parent_cgroup_path = PathBuf::from("/sys/fs/cgroup/purple");
+        let parent_cgroup_path = config::cgroup_parent_path();
         if !parent_cgroup_path.exists() {
             if let Err(e) = fs::create_dir_all(&parent_cgroup_path) {
                 return Err(crate::error::PurpleError::ResourceError(format!(
@@ -290,11 +291,7 @@ impl CgroupManager {
         log::info!("Validating cgroup functionality...");
 
         // Check if cgroup filesystem is mounted
-        let cgroup_mounts = [
-            "/sys/fs/cgroup",
-            "/sys/fs/cgroup/unified",
-            "/sys/fs/cgroup/purple",
-        ];
+        let cgroup_mounts = ["/sys/fs/cgroup", "/sys/fs/cgroup/unified"];
 
         let mut found_cgroup = false;
         for mount_point in &cgroup_mounts {
@@ -311,8 +308,23 @@ impl CgroupManager {
             ));
         }
 
+        // Check if our purple cgroup parent exists
+        let purple_cgroup_path = config::cgroup_parent_path();
+        if !purple_cgroup_path.exists() {
+            log::info!(
+                "Creating purple cgroup parent directory: {}",
+                purple_cgroup_path.display()
+            );
+            if let Err(e) = fs::create_dir_all(&purple_cgroup_path) {
+                return Err(crate::error::PurpleError::ResourceError(format!(
+                    "Failed to create purple cgroup directory: {}",
+                    e
+                )));
+            }
+        }
+
         // Test creating a temporary cgroup directory
-        let test_cgroup_path = PathBuf::from("/sys/fs/cgroup/purple/test_validation");
+        let test_cgroup_path = purple_cgroup_path.join("test_validation");
         match fs::create_dir_all(&test_cgroup_path) {
             Ok(_) => {
                 // Successfully created, now clean up
@@ -492,7 +504,7 @@ impl CgroupManager {
 
         log::info!("Cleaning up orphaned cgroups...");
 
-        let purple_cgroup_path = PathBuf::from("/sys/fs/cgroup/purple");
+        let purple_cgroup_path = config::cgroup_parent_path();
         if !purple_cgroup_path.exists() {
             log::info!("No purple cgroups found - nothing to clean up");
             return Ok(());
@@ -655,12 +667,12 @@ impl CgroupManager {
         for line in content.lines() {
             let parts: Vec<&str> = line.split_whitespace().collect();
             for part in parts.iter() {
-                if part.starts_with("rbytes=") || part.starts_with("wbytes=") {
-                    if let Some(eq_pos) = part.find('=') {
-                        let value_str = &part[eq_pos + 1..];
-                        if let Ok(bytes) = value_str.parse::<u64>() {
-                            total_bytes += bytes;
-                        }
+                if (part.starts_with("rbytes=") || part.starts_with("wbytes="))
+                    && let Some(eq_pos) = part.find('=')
+                {
+                    let value_str = &part[eq_pos + 1..];
+                    if let Ok(bytes) = value_str.parse::<u64>() {
+                        total_bytes += bytes;
                     }
                 }
             }

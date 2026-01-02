@@ -6,17 +6,16 @@
 //! - Pattern matching
 //! - Sequence correlation
 
-use crate::correlation::models::*;
 use crate::correlation::enrichment::EventEnricher;
-use rayon::prelude::*;
+use crate::correlation::models::*;
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
 /// Statistical helper functions
+#[allow(dead_code)]
 mod statistics {
     use std::f64;
 
@@ -35,9 +34,7 @@ mod statistics {
             return 0.0;
         }
         let avg = mean(data);
-        let variance: f64 = data.iter()
-            .map(|value| (value - avg).powi(2))
-            .sum();
+        let variance: f64 = data.iter().map(|value| (value - avg).powi(2)).sum();
         (variance / (data.len() - 1) as f64).sqrt()
     }
 
@@ -66,7 +63,8 @@ mod statistics {
         if total == 0 {
             return 0.0;
         }
-        counts.iter()
+        counts
+            .iter()
             .filter(|&&c| c > 0)
             .map(|&c| {
                 let p = c as f64 / total as f64;
@@ -80,9 +78,7 @@ mod statistics {
         if window == 0 || data.is_empty() {
             return Vec::new();
         }
-        data.windows(window)
-            .map(|w| mean(w))
-            .collect()
+        data.windows(window).map(mean).collect()
     }
 }
 
@@ -133,7 +129,7 @@ impl BehavioralBaseline {
     }
 
     /// Update baseline with new session data
-    pub fn update(&mut self, features: &BehavioralFeatures) {
+    pub fn update(&mut self, _features: &BehavioralFeatures) {
         // In production, this would use more sophisticated update logic
         // with exponential moving averages
         self.last_updated = now_timestamp();
@@ -144,7 +140,9 @@ impl BehavioralBaseline {
         let mut indicators = Vec::new();
 
         // Event rate anomaly
-        let event_rate = features.file_access_count + features.network_connections + features.syscall_diversity as u64;
+        let event_rate = features.file_access_count
+            + features.network_connections
+            + features.syscall_diversity as u64;
         let z_rate = z_score(event_rate as f64, self.mean_event_rate, self.std_event_rate);
         if z_rate.abs() > 3.0 {
             indicators.push(DriftIndicator {
@@ -152,7 +150,11 @@ impl BehavioralBaseline {
                 expected: self.mean_event_rate,
                 observed: event_rate as f64,
                 deviation: z_rate,
-                severity: if z_rate.abs() > 4.0 { Severity::High } else { Severity::Medium },
+                severity: if z_rate.abs() > 4.0 {
+                    Severity::High
+                } else {
+                    Severity::Medium
+                },
             });
         }
 
@@ -170,15 +172,29 @@ pub struct DriftIndicator {
 }
 
 /// Main correlation engine
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct CorrelationEngine {
     config: CorrelationConfig,
     baselines: Arc<Mutex<HashMap<String, BehavioralBaseline>>>,
     sessions: Arc<Mutex<HashMap<SessionId, CorrelationSession>>>,
     enricher: EventEnricher,
-    pattern_detector: RefCell<PatternDetector>,
-    sequence_analyzer: RefCell<SequenceAnalyzer>,
-    event_tx: Option<mpsc::Sender<EnrichedEvent>>,
+    pattern_detector: RwLock<PatternDetector>,
+    sequence_analyzer: RwLock<SequenceAnalyzer>,
+    _event_tx: Option<mpsc::Sender<EnrichedEvent>>,
+}
+
+impl Clone for CorrelationEngine {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            baselines: Arc::clone(&self.baselines),
+            sessions: Arc::clone(&self.sessions),
+            enricher: self.enricher.clone(),
+            pattern_detector: RwLock::new(PatternDetector::default()),
+            sequence_analyzer: RwLock::new(SequenceAnalyzer::default()),
+            _event_tx: None,
+        }
+    }
 }
 
 impl Default for CorrelationEngine {
@@ -194,14 +210,16 @@ impl CorrelationEngine {
             baselines: Arc::new(Mutex::new(HashMap::new())),
             sessions: Arc::new(Mutex::new(HashMap::new())),
             enricher: EventEnricher::new(config.threat_intelligence.clone()),
-            pattern_detector: RefCell::new(PatternDetector::default()),
-            sequence_analyzer: RefCell::new(SequenceAnalyzer::new(config.anomaly_detection.sequence_lookbehind)),
-            event_tx: None,
+            pattern_detector: RwLock::new(PatternDetector::default()),
+            sequence_analyzer: RwLock::new(SequenceAnalyzer::new(
+                config.anomaly_detection.sequence_lookbehind,
+            )),
+            _event_tx: None,
         }
     }
 
     /// Start a new correlation session
-    pub fn start_session(&self, profile_name: String, sandbox_id: Option<SessionId>) -> SessionId {
+    pub fn start_session(&self, profile_name: String, _sandbox_id: Option<SessionId>) -> SessionId {
         let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         let session = CorrelationSession::new(profile_name.clone());
         let session_id = session.session_id.clone();
@@ -226,7 +244,12 @@ impl CorrelationEngine {
     }
 
     /// Process an incoming raw event
-    pub async fn process_event(&self, session_id: &SessionId, raw_event: RawEvent) -> Option<Anomaly> {
+    #[allow(clippy::await_holding_lock)]
+    pub async fn process_event(
+        &self,
+        session_id: &SessionId,
+        raw_event: RawEvent,
+    ) -> Option<Anomaly> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         let session = match sessions.get_mut(session_id) {
             Some(s) => s,
@@ -234,14 +257,7 @@ impl CorrelationEngine {
         };
 
         // Get intent if available
-        let intent: Option<LlmIntent> = session.intent_id.as_ref().and_then(|id| {
-            session.events.iter()
-                .find(|e| e.intent_id.as_ref() == Some(id))
-                .and_then(|e| {
-                    // In a real implementation, we'd store intents separately
-                    None
-                })
-        });
+        let _intent: Option<LlmIntent> = None;
 
         // Enrich the event
         let enriched = self.enricher.enrich(raw_event, None).await;
@@ -255,19 +271,22 @@ impl CorrelationEngine {
         session.events.push(enriched.clone());
 
         // Check for anomalies
-        let anomaly = self.detect_anomaly(&session, &enriched).await;
+        let anomaly = self.detect_anomaly(session, &enriched).await;
 
         // Update pattern detection
-        self.pattern_detector.borrow_mut().update(&enriched);
+        self.pattern_detector.write().unwrap().update(&enriched);
 
-        // Update sequence analysis
-        self.sequence_analyzer.borrow_mut().add_event(&enriched);
+        self.sequence_analyzer.write().unwrap().add_event(&enriched);
 
         anomaly
     }
 
     /// Detect anomalies in an event
-    async fn detect_anomaly(&self, session: &CorrelationSession, event: &EnrichedEvent) -> Option<Anomaly> {
+    async fn detect_anomaly(
+        &self,
+        session: &CorrelationSession,
+        event: &EnrichedEvent,
+    ) -> Option<Anomaly> {
         let mut anomalies = Vec::new();
 
         // Rate-based anomaly detection
@@ -296,7 +315,9 @@ impl CorrelationEngine {
         }
 
         // Return the highest severity anomaly
-        anomalies.into_iter().max_by_key(|a| a.severity.numeric_value() as i32)
+        anomalies
+            .into_iter()
+            .max_by_key(|a| a.severity.numeric_value() as i32)
     }
 
     /// Detect rate-based anomalies
@@ -306,7 +327,8 @@ impl CorrelationEngine {
         let window_start = now.saturating_sub(window_seconds);
 
         // Count events in window
-        let recent_events: Vec<_> = session.events
+        let recent_events: Vec<_> = session
+            .events
             .iter()
             .filter(|e| e.base.timestamp >= window_start)
             .collect();
@@ -315,11 +337,17 @@ impl CorrelationEngine {
 
         if rate > self.config.anomaly_detection.rate_threshold {
             return Some(Anomaly::new(
-                recent_events.last().map(|e| e.base.event_id.clone()).unwrap_or_default(),
+                recent_events
+                    .last()
+                    .map(|e| e.base.event_id.clone())
+                    .unwrap_or_default(),
                 session.session_id.clone(),
                 AnomalyType::RateExceeded,
                 Severity::High,
-                format!("Event rate {} exceeds threshold {}", rate, self.config.anomaly_detection.rate_threshold),
+                format!(
+                    "Event rate {} exceeds threshold {}",
+                    rate, self.config.anomaly_detection.rate_threshold
+                ),
             ));
         }
 
@@ -327,24 +355,29 @@ impl CorrelationEngine {
     }
 
     /// Detect statistical outliers
-    fn detect_statistical_anomaly(&self, session: &CorrelationSession, event: &EnrichedEvent) -> Option<Anomaly> {
+    fn detect_statistical_anomaly(
+        &self,
+        session: &CorrelationSession,
+        event: &EnrichedEvent,
+    ) -> Option<Anomaly> {
         let profile_name = &session.profile_name;
         let baselines = self.baselines.lock().unwrap_or_else(|e| e.into_inner());
-        let baseline = match baselines.get(profile_name) {
-            Some(b) => b,
-            None => return None,
-        };
+        let baseline = baselines.get(profile_name)?;
 
         // Check event rate against baseline
         let recent_count = session.events.len();
-        let z_rate = z_score(recent_count as f64, baseline.mean_event_rate, baseline.std_event_rate);
+        let z_rate = z_score(
+            recent_count as f64,
+            baseline.mean_event_rate,
+            baseline.std_event_rate,
+        );
 
         if z_rate.abs() > self.config.anomaly_detection.statistical_threshold as f64 {
             return Some(Anomaly::new(
                 event.base.event_id.clone(),
                 session.session_id.clone(),
                 AnomalyType::StatisticalOutlier,
-                Severity::from(z_rate.abs() as f32),
+                Severity::from_z_score(z_rate.abs()),
                 format!("Event rate deviation: z-score {:.2}", z_rate),
             ));
         }
@@ -353,16 +386,21 @@ impl CorrelationEngine {
     }
 
     /// Complete a correlation session and generate results
+    #[allow(clippy::await_holding_lock)]
     pub async fn complete_session(&self, session_id: &SessionId) -> Option<CorrelationSession> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        
+
         if let Some(session) = sessions.get_mut(session_id) {
             session.end_time = now_timestamp();
             session.status = SessionStatus::Completed;
             session.total_events = session.events.len();
 
             // Analyze patterns
-            let patterns = self.pattern_detector.borrow().detect_patterns(&session.events);
+            let patterns = self
+                .pattern_detector
+                .read()
+                .unwrap()
+                .detect_patterns(&session.events);
             session.patterns = patterns;
 
             // Calculate final risk score
@@ -385,36 +423,51 @@ impl CorrelationEngine {
 
     /// Calculate overall risk score for a session
     async fn calculate_risk_score(&self, session: &CorrelationSession) -> RiskScoreBreakdown {
-        let mut breakdown = RiskScoreBreakdown::default();
-        breakdown.base_score = self.config.risk_scoring.base_score;
+        let mut breakdown = RiskScoreBreakdown {
+            base_score: self.config.risk_scoring.base_score,
+            ..Default::default()
+        };
 
         // Severity modifier from anomalies
         let mut severity_total = 0.0;
         for anomaly in &session.anomalies {
             severity_total += anomaly.severity.numeric_value();
         }
-        breakdown.severity_modifier = (severity_total / session.anomalies.len().max(1) as f32) 
-            * self.config.risk_scoring.severity_weights.get("high").copied().unwrap_or(20.0) / 100.0;
+        breakdown.severity_modifier = (severity_total / session.anomalies.len().max(1) as f32)
+            * self
+                .config
+                .risk_scoring
+                .severity_weights
+                .get("high")
+                .copied()
+                .unwrap_or(20.0)
+            / 100.0;
 
         // Confidence modifier
-        let avg_confidence: f32 = session.anomalies.iter()
+        let avg_confidence: f32 = session
+            .anomalies
+            .iter()
             .map(|a| a.confidence)
             .chain(session.events.iter().map(|e| e.confidence))
-            .sum::<f32>() 
+            .sum::<f32>()
             / (session.anomalies.len() + session.events.len()).max(1) as f32;
         breakdown.confidence_modifier = avg_confidence * self.config.risk_scoring.confidence_impact;
 
         // Temporal modifier (decay over time)
         let elapsed = session.end_time.saturating_sub(session.start_time);
-        breakdown.temporal_modifier = breakdown.severity_modifier * 
-            (1.0 - self.config.risk_scoring.temporal_decay.powf(elapsed as f32 / 3600.0));
+        breakdown.temporal_modifier = breakdown.severity_modifier
+            * (1.0
+                - self
+                    .config
+                    .risk_scoring
+                    .temporal_decay
+                    .powf(elapsed as f32 / 3600.0));
 
         // Calculate cumulative score
-        breakdown.cumulative_score = (breakdown.base_score 
-            + breakdown.severity_modifier 
-            + breakdown.confidence_modifier
-            - breakdown.temporal_modifier)
-            .clamp(0.0, 100.0);
+        breakdown.cumulative_score =
+            (breakdown.base_score + breakdown.severity_modifier + breakdown.confidence_modifier
+                - breakdown.temporal_modifier)
+                .clamp(0.0, 100.0);
 
         breakdown.risk_level = RiskLevel::from_score(breakdown.cumulative_score);
 
@@ -424,7 +477,8 @@ impl CorrelationEngine {
     /// Get active sessions
     pub fn get_active_sessions(&self) -> Vec<SessionId> {
         let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        sessions.iter()
+        sessions
+            .iter()
             .filter(|(_, s)| s.status == SessionStatus::Active)
             .map(|(id, _)| id.clone())
             .collect()
@@ -440,10 +494,10 @@ impl CorrelationEngine {
 /// Pattern detector for common attack patterns
 #[derive(Debug, Clone, Default)]
 pub struct PatternDetector {
-    file_to_network_pattern: usize,
-    privilege_escalation_pattern: usize,
-    persistence_pattern: usize,
-    reconnaissance_pattern: usize,
+    _file_to_network_pattern: usize,
+    _privilege_escalation_pattern: usize,
+    _persistence_pattern: usize,
+    _reconnaissance_pattern: usize,
     current_sequence: Vec<String>,
 }
 
@@ -512,8 +566,8 @@ impl PatternDetector {
 
     fn detect_privilege_escalation(&self, events: &[EnrichedEvent]) -> bool {
         events.iter().any(|e| {
-            e.attack_techniques.contains(&"T1055".to_string()) ||
-            e.attack_techniques.contains(&"T1548".to_string())
+            e.attack_techniques.contains(&"T1055".to_string())
+                || e.attack_techniques.contains(&"T1548".to_string())
         })
     }
 }
@@ -538,9 +592,9 @@ impl SequenceAnalyzer {
             lookbehind,
             sequence_buffer: Vec::new(),
             known_malicious_sequences: vec![
-                vec!["openat", "read", "write", "connect"],  // File read → Write → Exfil
-                vec!["setuid", "execve"],  // Privilege escalation
-                vec!["creat", "chmod", "connect"],  // Persistence setup
+                vec!["openat", "read", "write", "connect"], // File read → Write → Exfil
+                vec!["setuid", "execve"],                   // Privilege escalation
+                vec!["creat", "chmod", "connect"],          // Persistence setup
             ],
         }
     }
@@ -554,9 +608,11 @@ impl SequenceAnalyzer {
 
     pub fn check_sequence(&self) -> Option<SequenceViolation> {
         for (i, seq) in self.known_malicious_sequences.iter().enumerate() {
-            if self.sequence_buffer.windows(seq.len()).any(|window| {
-                window.iter().zip(seq.iter()).all(|(a, b)| a.as_str() == *b)
-            }) {
+            if self
+                .sequence_buffer
+                .windows(seq.len())
+                .any(|window| window.iter().zip(seq.iter()).all(|(a, b)| a.as_str() == *b))
+            {
                 return Some(SequenceViolation {
                     sequence_index: self.sequence_buffer.len().saturating_sub(seq.len()),
                     pattern_id: i,
@@ -617,17 +673,34 @@ mod tests {
     #[test]
     fn test_pattern_detection() {
         let detector = PatternDetector::default();
-        
+
         // Simulate file exfiltration pattern
-        let events = (0..15).map(|_| EnrichedEvent {
-            base: RawEvent::new("file_access".to_string(), 0, "read".to_string(), EventCategory::FileAccess),
-            ..Default::default()
-        }).chain((0..6).map(|_| EnrichedEvent {
-            base: RawEvent::new("network".to_string(), 0, "connect".to_string(), EventCategory::Network),
-            ..Default::default()
-        })).collect::<Vec<_>>();
+        let events = (0..15)
+            .map(|_| EnrichedEvent {
+                base: RawEvent::new(
+                    "file_access".to_string(),
+                    0,
+                    "read".to_string(),
+                    EventCategory::FileAccess,
+                ),
+                ..Default::default()
+            })
+            .chain((0..6).map(|_| EnrichedEvent {
+                base: RawEvent::new(
+                    "network".to_string(),
+                    0,
+                    "connect".to_string(),
+                    EventCategory::Network,
+                ),
+                ..Default::default()
+            }))
+            .collect::<Vec<_>>();
 
         let patterns = detector.detect_patterns(&events);
-        assert!(patterns.iter().any(|p| p.pattern_name == "File Exfiltration"));
+        assert!(
+            patterns
+                .iter()
+                .any(|p| p.pattern_name == "File Exfiltration")
+        );
     }
 }

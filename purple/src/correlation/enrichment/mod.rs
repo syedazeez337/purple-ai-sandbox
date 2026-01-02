@@ -11,6 +11,46 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
 
+#[inline]
+fn extract_after_delimiter(details: &str, delimiter: &str, default: &str) -> String {
+    details
+        .split(delimiter)
+        .nth(1)
+        .unwrap_or(default)
+        .split(',')
+        .next()
+        .unwrap_or(default)
+        .trim()
+        .to_string()
+}
+
+#[inline]
+fn extract_after_prefix(details: &str, prefix: &str) -> String {
+    details
+        .split(prefix)
+        .nth(1)
+        .unwrap_or("")
+        .split(',')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string()
+}
+
+#[inline]
+fn extract_u64_after(details: &str, delimiter: &str) -> u64 {
+    details
+        .split(delimiter)
+        .nth(1)
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+#[inline]
+fn extract_first_part(details: &str, default: &str) -> String {
+    details.split('[').next().unwrap_or(default).to_string()
+}
+
 /// Threat intelligence service
 #[derive(Debug, Clone)]
 pub struct ThreatIntelligenceService {
@@ -131,17 +171,26 @@ impl AttackMappingService {
             (0, vec![("T1005", "Data from Local System")]), // read
             (2, vec![("T1059", "Command and Scripting Interpreter")]), // creat
             (3, vec![("T1005", "Data from Local System")]), // close
-            (9, vec![("T1055", "Process Injection")]), // mmap
-            (10, vec![("T1055", "Process Injection")]), // mprotect
+            (9, vec![("T1055", "Process Injection")]),      // mmap
+            (10, vec![("T1055", "Process Injection")]),     // mprotect
             (11, vec![("T1059", "Command and Scripting Interpreter")]), // brk
             (21, vec![("T1005", "Data from Local System")]), // access
             (59, vec![("T1218", "Signed Binary Proxy Execution")]), // execve (indirectly)
-            (231, vec![("T1204", "User Execution")]), // execveat
-            (257, vec![("T1005", "Data from Local System"), ("T1083", "File and Directory Discovery")]), // openat
+            (231, vec![("T1204", "User Execution")]),       // execveat
+            (
+                257,
+                vec![
+                    ("T1005", "Data from Local System"),
+                    ("T1083", "File and Directory Discovery"),
+                ],
+            ), // openat
             (262, vec![("T1005", "Data from Local System")]), // newfstatat
-            (263, vec![("T1562", "Impair Defenses")]), // pg
+            (263, vec![("T1562", "Impair Defenses")]),      // pg
             (264, vec![("T1578", "Modify Authentication Process")]), // umount
-        ].iter().cloned().collect();
+        ]
+        .iter()
+        .cloned()
+        .collect();
 
         if let Some(mappings) = syscall_map.get(&syscall_nr) {
             for (technique_id, technique_name) in mappings {
@@ -198,7 +247,10 @@ impl AttackMappingService {
                 });
 
                 // Check for persistence locations
-                if filepath.contains("/etc/") || filepath.contains("/cron") || filepath.contains("/systemd") {
+                if filepath.contains("/etc/")
+                    || filepath.contains("/cron")
+                    || filepath.contains("/systemd")
+                {
                     techniques.push(AttackTechnique {
                         technique_id: "T1543".to_string(),
                         technique_name: "Create or Modify System Process".to_string(),
@@ -222,7 +274,11 @@ impl AttackMappingService {
     }
 
     /// Map network operations to ATT&CK techniques
-    pub fn map_network_operation(dest_ip: &str, dest_port: u16, bytes: u64) -> Vec<AttackTechnique> {
+    pub fn map_network_operation(
+        _dest_ip: &str,
+        dest_port: u16,
+        bytes: u64,
+    ) -> Vec<AttackTechnique> {
         let mut techniques = Vec::new();
 
         // Suspicious ports
@@ -275,9 +331,14 @@ impl AttackMappingService {
             ("T1071", "Command and Control"),
             ("T1218", "Defense Evasion"),
             ("T1543", "Persistence"),
-        ];
+        ]
+        .into();
 
-        technique_tactics.get(technique_id).map(|s| *s).unwrap_or("Unknown").to_string()
+        technique_tactics
+            .get(technique_id)
+            .copied()
+            .unwrap_or("Unknown")
+            .to_string()
     }
 }
 
@@ -294,7 +355,7 @@ pub struct AttackTechnique {
 #[derive(Debug, Clone)]
 pub struct EventEnricher {
     threat_intel: ThreatIntelligenceService,
-    attack_mapper: AttackMappingService,
+    _attack_mapper: AttackMappingService,
     severity_rules: SeverityClassifier,
 }
 
@@ -308,23 +369,19 @@ impl EventEnricher {
     pub fn new(threat_config: ThreatIntelligenceConfig) -> Self {
         Self {
             threat_intel: ThreatIntelligenceService::new(threat_config),
-            attack_mapper: AttackMappingService::default(),
-            severity_rules: SeverityClassifier::default(),
+            _attack_mapper: AttackMappingService,
+            severity_rules: SeverityClassifier,
         }
     }
 
     /// Enrich a raw event with additional metadata
     pub async fn enrich(&self, event: RawEvent, intent: Option<&LlmIntent>) -> EnrichedEvent {
-        let mut enriched = EnrichedEvent::default();
-        enriched.base = event.clone();
-        enriched.intent_id = intent.map(|i| i.intent_id.clone());
-
-        // Apply severity classification
-        enriched.severity = self.severity_rules.classify(&event);
-
-        // Map to ATT&CK techniques
-        enriched.attack_tactics = Vec::new();
-        enriched.attack_techniques = Vec::new();
+        let mut enriched = EnrichedEvent {
+            base: event.clone(),
+            intent_id: intent.map(|i| i.intent_id.clone()),
+            severity: self.severity_rules.classify(&event),
+            ..Default::default()
+        };
 
         match event.category {
             EventCategory::Syscall => {
@@ -347,19 +404,22 @@ impl EventEnricher {
             }
             EventCategory::Network => {
                 let (dest_ip, dest_port, bytes) = self.extract_network_info(&event.details);
-                let techniques = AttackMappingService::map_network_operation(&dest_ip, dest_port, bytes);
+                let techniques =
+                    AttackMappingService::map_network_operation(&dest_ip, dest_port, bytes);
                 for tech in &techniques {
                     enriched.attack_tactics.push(tech.tactic.clone());
                     enriched.attack_techniques.push(tech.technique_id.clone());
                 }
 
                 // Check threat intelligence for IP
-                if let Ok(ip) = dest_ip.parse::<Ipv4Addr>() {
-                    if let Some(indicator) = self.threat_intel.check_ip(&ip).await {
-                        enriched.risk_score = indicator.severity.numeric_value();
-                        enriched.confidence = indicator.confidence;
-                        enriched.indicators.push(format!("Malicious IP: {}", dest_ip));
-                    }
+                if let Ok(ip) = dest_ip.parse::<Ipv4Addr>()
+                    && let Some(indicator) = self.threat_intel.check_ip(&ip).await
+                {
+                    enriched.risk_score = indicator.severity.numeric_value();
+                    enriched.confidence = indicator.confidence;
+                    enriched
+                        .indicators
+                        .push(format!("Malicious IP: {}", dest_ip));
                 }
             }
             _ => {}
@@ -376,8 +436,8 @@ impl EventEnricher {
     }
 
     fn extract_syscall_nr(&self, details: &str) -> u64 {
-        // Parse syscall number from details string
-        details.split("nr=")
+        details
+            .split("nr=")
             .nth(1)
             .and_then(|s| s.split(',').next())
             .and_then(|s| s.trim().parse().ok())
@@ -396,39 +456,19 @@ impl EventEnricher {
     }
 
     fn extract_file_operation(&self, details: &str) -> String {
-        details.split('[').next().unwrap_or("unknown").to_string()
+        extract_first_part(details, "unknown")
     }
 
     fn extract_filepath(&self, details: &str) -> String {
-        details.split("filename=")
-            .nth(1)
-            .unwrap_or("")
-            .split(',')
-            .next()
-            .unwrap_or("")
-            .to_string()
+        extract_after_prefix(details, "filename=")
     }
 
     fn extract_network_info(&self, details: &str) -> (String, u16, u64) {
-        let dest_ip = details.split("dest=")
-            .nth(1)
-            .unwrap_or("0.0.0.0")
-            .split(':')
-            .next()
-            .unwrap_or("0.0.0.0")
-            .to_string();
-
-        let dest_port = details.split("dest=")
-            .nth(1)
-            .and_then(|s| s.split(':').nth(1))
-            .and_then(|s| s.split(',').next())
-            .and_then(|s| s.trim().parse().ok())
+        let dest_ip = extract_after_prefix(details, "dest=");
+        let dest_port = extract_after_delimiter(details, "dest=", "0")
+            .parse()
             .unwrap_or(0);
-
-        let bytes = details.split("bytes=")
-            .nth(1)
-            .and_then(|s| s.trim().parse().ok())
-            .unwrap_or(0);
+        let bytes = extract_u64_after(details, "bytes=");
 
         (dest_ip, dest_port, bytes)
     }
@@ -437,17 +477,21 @@ impl EventEnricher {
         // Check if event type is expected
         if !intent.expected_actions.is_empty() {
             for expected in &intent.expected_actions {
-                if event.details.to_lowercase().contains(&expected.to_lowercase()) {
+                if event
+                    .details
+                    .to_lowercase()
+                    .contains(&expected.to_lowercase())
+                {
                     return true;
                 }
             }
         }
 
         // Check if category is expected
-        if !intent.expected_categories.is_empty() {
-            if intent.expected_categories.contains(&event.category) {
-                return true;
-            }
+        if !intent.expected_categories.is_empty()
+            && intent.expected_categories.contains(&event.category)
+        {
+            return true;
         }
 
         false
@@ -464,10 +508,20 @@ impl SeverityClassifier {
 
         // Critical severity events
         let critical_patterns = [
-            "mount", "umount", "pivot_root", "chroot",
-            "kexec", "init_module", "delete_module",
-            "ptrace", "process_vm_read", "process_vm_write",
-            "setuid", "setgid", "setreuid", "setregid",
+            "mount",
+            "umount",
+            "pivot_root",
+            "chroot",
+            "kexec",
+            "init_module",
+            "delete_module",
+            "ptrace",
+            "process_vm_read",
+            "process_vm_write",
+            "setuid",
+            "setgid",
+            "setreuid",
+            "setregid",
         ];
 
         for pattern in &critical_patterns {
@@ -478,10 +532,8 @@ impl SeverityClassifier {
 
         // High severity events
         let high_patterns = [
-            "execve", "fork", "clone", "vfork",
-            "socket", "connect", "bind", "listen",
-            "openat", "creat", "unlink", "rename",
-            "chmod", "chown", "chgrp",
+            "execve", "fork", "clone", "vfork", "socket", "connect", "bind", "listen", "openat",
+            "creat", "unlink", "rename", "chmod", "chown", "chgrp",
         ];
 
         for pattern in &high_patterns {
@@ -492,9 +544,8 @@ impl SeverityClassifier {
 
         // Medium severity events
         let medium_patterns = [
-            "read", "write", "close", "lseek",
-            "stat", "fstat", "lstat", "access",
-            "brk", "mmap", "mprotect", "munmap",
+            "read", "write", "close", "lseek", "stat", "fstat", "lstat", "access", "brk", "mmap",
+            "mprotect", "munmap",
         ];
 
         for pattern in &medium_patterns {
@@ -552,8 +603,9 @@ mod tests {
     #[test]
     fn test_attack_mapping() {
         let mapper = AttackMappingService::default();
+        let _ = mapper;
 
-        let techniques = mapper.map_syscall(59, &[0, 0, 0]);
+        let techniques = AttackMappingService::map_syscall(59, &[0, 0, 0]);
         assert!(!techniques.is_empty());
         assert!(techniques.iter().any(|t| t.technique_id == "T1059"));
     }

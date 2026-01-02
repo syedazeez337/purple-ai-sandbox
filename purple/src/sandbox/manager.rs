@@ -80,9 +80,9 @@ pub struct SandboxInstance {
     start_time: std::time::SystemTime,
     resource_usage: ResourceUsage,
     allocation: ResourceAllocation,
-    profile_name: String,        // Track which profile was used
-    command: Vec<String>,        // Track executed command
-    pid: Option<i32>,           // Child process ID for tracking
+    profile_name: String, // Track which profile was used
+    command: Vec<String>, // Track executed command
+    pid: Option<i32>,     // Child process ID for tracking
 }
 
 /// Current status of a sandbox
@@ -100,9 +100,9 @@ pub enum SandboxStatus {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct ResourceUsage {
-    pub cpu_time: f64,              // seconds
-    pub memory_peak: u64,           // bytes
-    pub network_bytes: u64,         // bytes (currently disk I/O)
+    pub cpu_time: f64,               // seconds
+    pub memory_peak: u64,            // bytes
+    pub network_bytes: u64,          // bytes (currently disk I/O)
     pub collection_successful: bool, // Track if stats were actually collected
 }
 
@@ -491,9 +491,8 @@ impl SandboxManager {
             PurpleError::SandboxError(format!("Failed to serialize manager state: {}", e))
         })?;
 
-        std::fs::write(path, json).map_err(|e| {
-            PurpleError::SandboxError(format!("Failed to write state file: {}", e))
-        })?;
+        std::fs::write(path, json)
+            .map_err(|e| PurpleError::SandboxError(format!("Failed to write state file: {}", e)))?;
 
         log::info!("Saved manager state to {}", path.display());
         Ok(())
@@ -501,9 +500,8 @@ impl SandboxManager {
 
     /// Loads manager state from a JSON file
     pub fn load_state(path: &std::path::Path) -> Result<ManagerState> {
-        let json = std::fs::read_to_string(path).map_err(|e| {
-            PurpleError::SandboxError(format!("Failed to read state file: {}", e))
-        })?;
+        let json = std::fs::read_to_string(path)
+            .map_err(|e| PurpleError::SandboxError(format!("Failed to read state file: {}", e)))?;
 
         let state: ManagerState = serde_json::from_str(&json).map_err(|e| {
             PurpleError::SandboxError(format!("Failed to deserialize manager state: {}", e))
@@ -535,6 +533,36 @@ impl SandboxManager {
         log::warn!("Active sandboxes are not restored - only metadata is preserved");
 
         Ok(manager)
+    }
+
+    /// Runs the eBPF event monitoring loop for a sandbox
+    /// This should be called in an async task/Tokio runtime
+    #[cfg(feature = "ebpf")]
+    pub async fn run_ebpf_monitoring(
+        &mut self,
+        sandbox_id: &str,
+        ebpf_loader: &mut crate::sandbox::ebpf::EbpfLoader,
+    ) {
+        log::info!("Starting eBPF monitoring for sandbox: {}", sandbox_id);
+
+        // Run the event loop
+        ebpf_loader.run_event_loop().await;
+
+        log::info!("eBPF monitoring stopped for sandbox: {}", sandbox_id);
+    }
+
+    /// Creates a task handle for running eBPF monitoring
+    /// Returns a JoinHandle that can be awaited to wait for completion
+    #[cfg(feature = "ebpf")]
+    pub fn spawn_ebpf_monitoring(
+        &self,
+        sandbox_id: String,
+        mut ebpf_loader: crate::sandbox::ebpf::EbpfLoader,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            ebpf_loader.run_event_loop().await;
+            log::info!("eBPF monitoring task completed for sandbox: {}", sandbox_id);
+        })
     }
 }
 

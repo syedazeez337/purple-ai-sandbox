@@ -19,6 +19,7 @@ pub struct PolicyBuilder {
     audit: AuditPolicy,
 }
 
+#[allow(dead_code)]
 impl PolicyBuilder {
     #[allow(dead_code)]
     pub fn new(name: &str) -> Self {

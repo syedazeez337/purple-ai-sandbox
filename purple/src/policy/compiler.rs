@@ -140,6 +140,28 @@ fn validate_sandbox_path(path: &Path, path_type: &str) -> Result<PathBuf, String
     validate_path(path, path_type, false)
 }
 
+/// Helper function to parse a size string with a suffix multiplier
+/// Returns the parsed number multiplied by the suffix value, or the raw number if no suffix
+fn parse_size_with_suffix(
+    size_str: &str,
+    suffixes: &[(&str, u64)],
+    default_err: &str,
+) -> Result<u64, String> {
+    let size_str = size_str.trim();
+
+    for (suffix, multiplier) in suffixes {
+        if let Some(num_str) = size_str.strip_suffix(suffix) {
+            let num: u64 = num_str
+                .parse()
+                .map_err(|_| format!("invalid number '{}' before '{}' suffix", num_str, suffix))?;
+            return Ok(num * multiplier);
+        }
+    }
+
+    // Try parsing as raw bytes
+    size_str.parse().map_err(|_| default_err.to_string())
+}
+
 /// Parses a memory size string (e.g., "2G", "512M", "1073741824") into bytes
 /// Returns an error for invalid formats instead of silently failing
 pub(crate) fn parse_memory_size(size_str: &str) -> Result<u64, String> {
@@ -149,52 +171,18 @@ pub(crate) fn parse_memory_size(size_str: &str) -> Result<u64, String> {
         return Err("empty value".to_string());
     }
 
-    // Try parsing with suffix
-    if let Some(num_str) = size_str.strip_suffix('G') {
-        let num: u64 = num_str
-            .parse()
-            .map_err(|_| format!("invalid number '{}' before 'G' suffix", num_str))?;
-        return Ok(num * 1024 * 1024 * 1024);
-    }
-
-    if let Some(num_str) = size_str.strip_suffix("GB") {
-        let num: u64 = num_str
-            .parse()
-            .map_err(|_| format!("invalid number '{}' before 'GB' suffix", num_str))?;
-        return Ok(num * 1024 * 1024 * 1024);
-    }
-
-    if let Some(num_str) = size_str.strip_suffix('M') {
-        let num: u64 = num_str
-            .parse()
-            .map_err(|_| format!("invalid number '{}' before 'M' suffix", num_str))?;
-        return Ok(num * 1024 * 1024);
-    }
-
-    if let Some(num_str) = size_str.strip_suffix("MB") {
-        let num: u64 = num_str
-            .parse()
-            .map_err(|_| format!("invalid number '{}' before 'MB' suffix", num_str))?;
-        return Ok(num * 1024 * 1024);
-    }
-
-    if let Some(num_str) = size_str.strip_suffix('K') {
-        let num: u64 = num_str
-            .parse()
-            .map_err(|_| format!("invalid number '{}' before 'K' suffix", num_str))?;
-        return Ok(num * 1024);
-    }
-
-    if let Some(num_str) = size_str.strip_suffix("KB") {
-        let num: u64 = num_str
-            .parse()
-            .map_err(|_| format!("invalid number '{}' before 'KB' suffix", num_str))?;
-        return Ok(num * 1024);
-    }
-
-    // Try parsing as raw bytes
-    size_str.parse::<u64>()
-        .map_err(|_| "expected format: <number>G, <number>M, <number>K, or raw bytes (e.g., '2G', '512M', '1073741824')".to_string())
+    parse_size_with_suffix(
+        size_str,
+        &[
+            ("G", 1024 * 1024 * 1024),
+            ("GB", 1024 * 1024 * 1024),
+            ("M", 1024 * 1024),
+            ("MB", 1024 * 1024),
+            ("K", 1024),
+            ("KB", 1024),
+        ],
+        "expected format: <number>G, <number>M, <number>K, or raw bytes (e.g., '2G', '512M', '1073741824')",
+    )
 }
 
 /// Parses an I/O rate string (e.g., "100MBps", "1GBps") into bytes per second
@@ -206,37 +194,16 @@ fn parse_io_rate(rate_str: &str) -> Result<u64, String> {
         return Err("empty value".to_string());
     }
 
-    if let Some(num_str) = rate_str.strip_suffix("GBps") {
-        let num: u64 = num_str
-            .parse()
-            .map_err(|_| format!("invalid number '{}' before 'GBps' suffix", num_str))?;
-        return Ok(num * 1024 * 1024 * 1024);
-    }
-
-    if let Some(num_str) = rate_str.strip_suffix("MBps") {
-        let num: u64 = num_str
-            .parse()
-            .map_err(|_| format!("invalid number '{}' before 'MBps' suffix", num_str))?;
-        return Ok(num * 1024 * 1024);
-    }
-
-    if let Some(num_str) = rate_str.strip_suffix("KBps") {
-        let num: u64 = num_str
-            .parse()
-            .map_err(|_| format!("invalid number '{}' before 'KBps' suffix", num_str))?;
-        return Ok(num * 1024);
-    }
-
-    if let Some(num_str) = rate_str.strip_suffix("Bps") {
-        let num: u64 = num_str
-            .parse()
-            .map_err(|_| format!("invalid number '{}' before 'Bps' suffix", num_str))?;
-        return Ok(num);
-    }
-
-    // Try parsing as raw bytes per second
-    rate_str.parse::<u64>()
-        .map_err(|_| "expected format: <number>GBps, <number>MBps, <number>KBps, or raw bytes/sec (e.g., '100MBps', '1GBps')".to_string())
+    parse_size_with_suffix(
+        rate_str,
+        &[
+            ("GBps", 1024 * 1024 * 1024),
+            ("MBps", 1024 * 1024),
+            ("KBps", 1024),
+            ("Bps", 1),
+        ],
+        "expected format: <number>GBps, <number>MBps, <number>KBps, or raw bytes/sec (e.g., '100MBps', '1GBps')",
+    )
 }
 
 /// Parses a port string into a valid port number (1-65535)

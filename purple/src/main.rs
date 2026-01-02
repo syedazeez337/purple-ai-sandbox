@@ -12,7 +12,7 @@ pub mod correlation;
 mod tests;
 
 use clap::Parser;
-use cli::{Cli, Commands, ProfileCommands, SandboxAction, CorrelationCommands};
+use cli::{Cli, Commands, ProfileCommands, SandboxAction};
 use error::PurpleError;
 use log::LevelFilter;
 use logging::init_logging;
@@ -87,7 +87,10 @@ fn execute_via_manager(
         profile_name.to_string(),
     )?;
 
-    info!("Created sandbox {} for profile {}", sandbox_id, profile_name);
+    info!(
+        "Created sandbox {} for profile {}",
+        sandbox_id, profile_name
+    );
 
     // Execute sandbox
     info!("Executing sandbox {}...", sandbox_id);
@@ -546,93 +549,102 @@ audit:
                                 // Legacy path: Direct execution
                                 let mut sandbox = Sandbox::new(compiled_policy, agent_command);
                                 match sandbox.execute() {
-                                Ok(exit_code) => {
-                                    if exit_code != 0 {
-                                        std::process::exit(exit_code);
-                                    }
-                                }
-                                Err(e) => {
-                                    eprintln!("Sandbox execution failed: {}", e);
-                                    eprintln!("\n=== Debugging Information ===");
-
-                                    // Provide context-specific debugging help
-                                    match e {
-                                        PurpleError::SandboxError(ref msg) => {
-                                            eprintln!("Sandbox setup error: {}", msg);
-                                            eprintln!("Possible causes:");
-                                            eprintln!(
-                                                "  - Insufficient permissions for namespace operations"
-                                            );
-                                            eprintln!(
-                                                "  - Missing kernel support for user namespaces"
-                                            );
-                                            eprintln!("  - Filesystem permissions issues");
-                                            eprintln!("\nTry running with:");
-                                            eprintln!(
-                                                "  sudo sysctl -w kernel.unprivileged_userns_clone=1"
-                                            );
-                                        }
-                                        PurpleError::FilesystemError(ref msg) => {
-                                            eprintln!("Filesystem error: {}", msg);
-                                            eprintln!("Possible causes:");
-                                            eprintln!(
-                                                "  - Missing directories or permission issues"
-                                            );
-                                            eprintln!(
-                                                "  - Bind mount failures due to insufficient privileges"
-                                            );
-                                            eprintln!("  - Disk space or inode limitations");
-                                            eprintln!("\nCheck directory permissions and try:");
-                                            eprintln!("  sudo mkdir -p /tmp/purple-sandbox");
-                                            eprintln!("  sudo chmod 777 /tmp/purple-sandbox");
-                                        }
-                                        PurpleError::ResourceError(ref msg) => {
-                                            eprintln!("Resource limit error: {}", msg);
-                                            eprintln!("Possible causes:");
-                                            eprintln!(
-                                                "  - Insufficient permissions to create cgroups"
-                                            );
-                                            eprintln!("  - Cgroup filesystem not mounted");
-                                            eprintln!("  - System resource limits reached");
-                                            eprintln!("\nCheck cgroup setup:");
-                                            eprintln!("  mount | grep cgroup");
-                                            eprintln!(
-                                                "  sudo mount -t cgroup2 none /sys/fs/cgroup"
-                                            );
-                                        }
-                                        PurpleError::SyscallError(ref msg) => {
-                                            eprintln!("Syscall filtering error: {}", msg);
-                                            eprintln!("Possible causes:");
-                                            eprintln!("  - Missing libseccomp library");
-                                            eprintln!("  - Invalid syscall names in policy");
-                                            eprintln!("  - Kernel seccomp support disabled");
-                                            eprintln!("\nInstall required packages:");
-                                            eprintln!("  sudo dnf install libseccomp-devel");
-                                        }
-                                        PurpleError::PolicyError(ref msg) => {
-                                            eprintln!("Policy configuration error: {}", msg);
-                                            eprintln!("Possible causes:");
-                                            eprintln!("  - Invalid YAML syntax in policy file");
-                                            eprintln!("  - Unknown syscall or capability names");
-                                            eprintln!("  - Missing required policy fields");
-                                            eprintln!("\nValidate policy with:");
-                                            eprintln!("  ./purple profile show {}", profile_name);
-                                        }
-                                        _ => {
-                                            eprintln!("Unexpected error type: {:?}", e);
-                                            eprintln!(
-                                                "Please report this issue with the full error message."
-                                            );
+                                    Ok(exit_code) => {
+                                        if exit_code != 0 {
+                                            std::process::exit(exit_code);
                                         }
                                     }
+                                    Err(e) => {
+                                        eprintln!("Sandbox execution failed: {}", e);
+                                        eprintln!("\n=== Debugging Information ===");
 
-                                    std::process::exit(1);
+                                        // Provide context-specific debugging help
+                                        match e {
+                                            PurpleError::SandboxError(ref msg) => {
+                                                eprintln!("Sandbox setup error: {}", msg);
+                                                eprintln!("Possible causes:");
+                                                eprintln!(
+                                                    "  - Insufficient permissions for namespace operations"
+                                                );
+                                                eprintln!(
+                                                    "  - Missing kernel support for user namespaces"
+                                                );
+                                                eprintln!("  - Filesystem permissions issues");
+                                                eprintln!("\nTry running with:");
+                                                eprintln!(
+                                                    "  sudo sysctl -w kernel.unprivileged_userns_clone=1"
+                                                );
+                                            }
+                                            PurpleError::FilesystemError(ref msg) => {
+                                                eprintln!("Filesystem error: {}", msg);
+                                                eprintln!("Possible causes:");
+                                                eprintln!(
+                                                    "  - Missing directories or permission issues"
+                                                );
+                                                eprintln!(
+                                                    "  - Bind mount failures due to insufficient privileges"
+                                                );
+                                                eprintln!("  - Disk space or inode limitations");
+                                                eprintln!("\nCheck directory permissions and try:");
+                                                eprintln!("  sudo mkdir -p /tmp/purple-sandbox");
+                                                eprintln!("  sudo chmod 777 /tmp/purple-sandbox");
+                                            }
+                                            PurpleError::ResourceError(ref msg) => {
+                                                eprintln!("Resource limit error: {}", msg);
+                                                eprintln!("Possible causes:");
+                                                eprintln!(
+                                                    "  - Insufficient permissions to create cgroups"
+                                                );
+                                                eprintln!("  - Cgroup filesystem not mounted");
+                                                eprintln!("  - System resource limits reached");
+                                                eprintln!("\nCheck cgroup setup:");
+                                                eprintln!("  mount | grep cgroup");
+                                                eprintln!(
+                                                    "  sudo mount -t cgroup2 none /sys/fs/cgroup"
+                                                );
+                                            }
+                                            PurpleError::SyscallError(ref msg) => {
+                                                eprintln!("Syscall filtering error: {}", msg);
+                                                eprintln!("Possible causes:");
+                                                eprintln!("  - Missing libseccomp library");
+                                                eprintln!("  - Invalid syscall names in policy");
+                                                eprintln!("  - Kernel seccomp support disabled");
+                                                eprintln!("\nInstall required packages:");
+                                                eprintln!("  sudo dnf install libseccomp-devel");
+                                            }
+                                            PurpleError::PolicyError(ref msg) => {
+                                                eprintln!("Policy configuration error: {}", msg);
+                                                eprintln!("Possible causes:");
+                                                eprintln!("  - Invalid YAML syntax in policy file");
+                                                eprintln!(
+                                                    "  - Unknown syscall or capability names"
+                                                );
+                                                eprintln!("  - Missing required policy fields");
+                                                eprintln!("\nValidate policy with:");
+                                                eprintln!(
+                                                    "  ./purple profile show {}",
+                                                    profile_name
+                                                );
+                                            }
+                                            _ => {
+                                                eprintln!("Unexpected error type: {:?}", e);
+                                                eprintln!(
+                                                    "Please report this issue with the full error message."
+                                                );
+                                            }
+                                        }
+
+                                        std::process::exit(1);
+                                    }
                                 }
-                            }
                             } else {
                                 log::info!("Using manager execution (default)");
                                 // NEW DEFAULT: Manager-based execution
-                                match execute_via_manager(compiled_policy, agent_command, &profile_name) {
+                                match execute_via_manager(
+                                    compiled_policy,
+                                    agent_command,
+                                    &profile_name,
+                                ) {
                                     Ok(_) => {
                                         log::info!("Sandbox execution completed successfully");
                                     }
@@ -698,10 +710,15 @@ audit:
                                                 eprintln!("Policy configuration error: {}", msg);
                                                 eprintln!("Possible causes:");
                                                 eprintln!("  - Invalid YAML syntax in policy file");
-                                                eprintln!("  - Unknown syscall or capability names");
+                                                eprintln!(
+                                                    "  - Unknown syscall or capability names"
+                                                );
                                                 eprintln!("  - Missing required policy fields");
                                                 eprintln!("\nValidate policy with:");
-                                                eprintln!("  ./purple profile show {}", profile_name);
+                                                eprintln!(
+                                                    "  ./purple profile show {}",
+                                                    profile_name
+                                                );
                                             }
                                             _ => {
                                                 eprintln!("Unexpected error type: {:?}", e);
@@ -932,7 +949,10 @@ audit:
                             mgr
                         }
                         Err(e) => {
-                            log::warn!("Failed to restore manager state: {}, creating new manager", e);
+                            log::warn!(
+                                "Failed to restore manager state: {}, creating new manager",
+                                e
+                            );
                             SandboxManager::new()
                         }
                     },
@@ -1118,17 +1138,29 @@ audit:
             println!("✅ Audit report generation complete!");
         }
         Commands::Correlation { command } => {
-            use correlation::cli::{CorrelationCli, CorrelationCommands};
+            use correlation::models::CorrelationConfig;
+            use correlation::storage::MemoryStorage;
+
+            // Create in-memory storage for this session
+            let storage = std::sync::Arc::new(std::sync::Mutex::new(MemoryStorage::new()));
 
             let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
             rt.block_on(async {
-                match command {
-                    CorrelationCommands::Start { profile, sandbox_id, threat_intel, attack } => {
-                        let _ = threat_intel;
-                        let _ = attack;
-                        let config = correlation::models::CorrelationConfig::default();
+                match &command {
+                    cli::CorrelationCommands::Start {
+                        profile,
+                        sandbox_id,
+                    } => {
+                        let config = CorrelationConfig::default();
                         let engine = correlation::engine::CorrelationEngine::new(config);
                         let session_id = engine.start_session(profile.clone(), sandbox_id.clone());
+
+                        // Store new session
+                        if let Some(session) = engine.get_session(&session_id) {
+                            let s = storage.lock().unwrap();
+                            s.store_session(&session).ok();
+                        }
+
                         println!("\n============================================");
                         println!("Correlation Session Started");
                         println!("============================================");
@@ -1138,49 +1170,89 @@ audit:
                             println!("Sandbox ID: {}", sid);
                         }
                         println!("Status: Active");
+                        println!("Note: Session stored in memory for this CLI session");
                         println!("============================================\n");
                     }
-                    CorrelationCommands::Status { session_id, json: _ } => {
-                        let config = correlation::models::CorrelationConfig::default();
-                        let engine = correlation::engine::CorrelationEngine::new(config);
-                        let session = engine.get_session(&session_id);
-                        if let Some(s) = session {
-                            println!("\n============================================");
-                            println!("Session Status: {}", session_id);
-                            println!("============================================");
-                            println!("Profile: {}", s.profile_name);
-                            println!("Status: {:?}", s.status);
-                            println!("Events: {}", s.events.len());
-                            println!("Anomalies: {}", s.anomalies.len());
-                            println!("Risk Score: {:.1}", s.risk_score.cumulative_score);
-                            println!("============================================\n");
+                    cli::CorrelationCommands::Status { session_id, json } => {
+                        let s = storage.lock().unwrap();
+                        let stored_session = s.get_session(session_id);
+                        drop(s);
+
+                        if let Some(s) = stored_session {
+                            if *json {
+                                println!("{}", serde_json::to_string_pretty(&s).unwrap());
+                            } else {
+                                println!("\n============================================");
+                                println!("Session Status: {}", session_id);
+                                println!("============================================");
+                                println!("Profile: {}", s.profile_name);
+                                println!("Status: {:?}", s.status);
+                                println!("Events: {}", s.events.len());
+                                println!("Anomalies: {}", s.anomalies.len());
+                                println!("Risk Score: {:.1}", s.risk_score.cumulative_score);
+                                println!("============================================\n");
+                            }
                         } else {
                             println!("Session not found: {}", session_id);
                         }
                     }
-                    CorrelationCommands::Event { session_id, event_type, pid, details, category, comm } => {
-                        let config = correlation::models::CorrelationConfig::default();
+                    cli::CorrelationCommands::Event {
+                        session_id,
+                        event_type,
+                        pid,
+                        details,
+                    } => {
+                        let config = CorrelationConfig::default();
                         let engine = correlation::engine::CorrelationEngine::new(config);
                         let event = correlation::models::RawEvent::new(
-                            event_type, pid, details, category.parse().unwrap_or(correlation::models::EventCategory::Syscall),
+                            event_type.clone(),
+                            *pid,
+                            details.clone(),
+                            correlation::models::EventCategory::Syscall,
                         );
-                        engine.process_event(&session_id, event).await;
+                        engine.process_event(session_id, event).await;
+
+                        // Update storage if session exists
+                        if let Some(session) = engine.get_session(session_id) {
+                            let s = storage.lock().unwrap();
+                            s.store_session(&session).ok();
+                        }
+
                         println!("Event submitted to session: {}", session_id);
                     }
-                    CorrelationCommands::Intent { session_id, prompt, expected_actions, confidence } => {
-                        let config = correlation::models::CorrelationConfig::default();
+                    cli::CorrelationCommands::Intent {
+                        session_id,
+                        prompt,
+                        expected_actions,
+                    } => {
+                        let config = CorrelationConfig::default();
                         let engine = correlation::engine::CorrelationEngine::new(config);
-                        let intent = correlation::models::LlmIntent::new(prompt, expected_actions, String::new());
-                        intent.confidence = confidence;
-                        engine.register_intent(&session_id, intent).await;
+                        let intent = correlation::models::LlmIntent::new(
+                            prompt.clone(),
+                            expected_actions.clone(),
+                            String::new(),
+                        );
+                        engine.register_intent(session_id, intent).await;
+
+                        // Update storage if session exists
+                        if let Some(session) = engine.get_session(session_id) {
+                            let s = storage.lock().unwrap();
+                            s.store_session(&session).ok();
+                        }
+
                         println!("Intent registered for session: {}", session_id);
                     }
-                    CorrelationCommands::Complete { session_id, format, save } => {
-                        let _ = save;
-                        let config = correlation::models::CorrelationConfig::default();
+                    cli::CorrelationCommands::Complete { session_id, format } => {
+                        let config = CorrelationConfig::default();
                         let engine = correlation::engine::CorrelationEngine::new(config);
-                        let session = engine.complete_session(&session_id).await;
+                        let session = engine.complete_session(session_id).await;
                         if let Some(s) = session {
+                            // Persist completed session
+                            {
+                                let st = storage.lock().unwrap();
+                                st.store_session(&s).ok();
+                            }
+
                             if format == "json" {
                                 println!("{}", serde_json::to_string_pretty(&s).unwrap());
                             } else {
@@ -1191,19 +1263,22 @@ audit:
                                 println!("Profile: {}", s.profile_name);
                                 println!("Events: {}", s.events.len());
                                 println!("Anomalies: {}", s.anomalies.len());
-                                println!("Risk Score: {:.1}/100 ({:?})", 
-                                    s.risk_score.cumulative_score, s.risk_score.risk_level);
+                                println!(
+                                    "Risk Score: {:.1}/100 ({:?})",
+                                    s.risk_score.cumulative_score, s.risk_score.risk_level
+                                );
                                 println!("============================================\n");
                             }
                         } else {
                             println!("Session not found: {}", session_id);
                         }
                     }
-                    CorrelationCommands::Report { session_id, format, output } => {
-                        let config = correlation::models::CorrelationConfig::default();
-                        let engine = correlation::engine::CorrelationEngine::new(config);
-                        let session = engine.get_session(&session_id);
-                        if let Some(s) = session {
+                    cli::CorrelationCommands::Report { session_id, format } => {
+                        let s = storage.lock().unwrap();
+                        let stored_session = s.get_session(session_id);
+                        drop(s);
+
+                        if let Some(s) = stored_session {
                             if format == "json" {
                                 println!("{}", serde_json::to_string_pretty(&s).unwrap());
                             } else {
@@ -1212,7 +1287,10 @@ audit:
                                 println!("============================================");
                                 println!("Events: {}", s.events.len());
                                 println!("Anomalies: {}", s.anomalies.len());
-                                println!("Risk: {:?} ({:.1})", s.risk_score.risk_level, s.risk_score.cumulative_score);
+                                println!(
+                                    "Risk: {:?} ({:.1})",
+                                    s.risk_score.risk_level, s.risk_score.cumulative_score
+                                );
                                 println!("ATT&CK Techniques: {}", s.attack_coverage.len());
                                 for t in &s.attack_coverage {
                                     println!("  - {}", t);
@@ -1223,36 +1301,48 @@ audit:
                             println!("Session not found: {}", session_id);
                         }
                     }
-                    CorrelationCommands::List => {
-                        let config = correlation::models::CorrelationConfig::default();
+                    cli::CorrelationCommands::List => {
+                        // Get all sessions from storage
+                        let config = CorrelationConfig::default();
                         let engine = correlation::engine::CorrelationEngine::new(config);
                         let sessions = engine.get_active_sessions();
-                        println!("\nActive Correlation Sessions:");
-                        println!("============================");
-                        for session_id in sessions {
-                            println!("  - {}", session_id);
+
+                        if sessions.is_empty() {
+                            println!("No correlation sessions found");
+                        } else {
+                            println!("\nCorrelation Sessions:");
+                            println!("======================");
+                            for session_id in &sessions {
+                                println!("  - {}", session_id);
+                            }
+                            println!("======================");
+                            println!("Total: {} sessions\n", sessions.len());
                         }
-                        println!("============================");
-                        println!("Total: {} active sessions\n", sessions.len());
                     }
-                    CorrelationCommands::Rules { action } => {
-                        use correlation::rules::RulesEngine;
+                    cli::CorrelationCommands::Rules { action } => {
                         let rules_engine = correlation::rules::RulesEngine::new(true);
                         match action {
-                            correlation::cli::RuleCommands::List => {
+                            cli::RuleCommands::List => {
                                 let rules = rules_engine.get_all_rules();
-                                println!("\nDetection Rules:");
-                                println!("================");
-                                for rule in &rules {
-                                    println!("  [{}] {}", 
-                                        if rule.enabled { "ENABLED" } else { "DISABLED" },
-                                        rule.name);
+                                if rules.is_empty() {
+                                    println!("No rules loaded");
+                                } else {
+                                    println!("\nDetection Rules:");
+                                    println!("================");
+                                    for rule in &rules {
+                                        println!(
+                                            "  [{}] {}",
+                                            if rule.enabled { "ENABLED" } else { "DISABLED" },
+                                            rule.name
+                                        );
+                                    }
+                                    println!("================");
+                                    println!("Total: {} rules\n", rules.len());
                                 }
-                                println!("================");
-                                println!("Total: {} rules\n", rules.len());
                             }
-                            correlation::cli::RuleCommands::Load { directory } => {
-                                let _ = rules_engine.load_rules_from_directory(std::path::PathBuf::from(directory));
+                            cli::RuleCommands::Load { directory } => {
+                                let _ = rules_engine
+                                    .load_rules_from_directory(std::path::PathBuf::from(directory));
                             }
                         }
                     }

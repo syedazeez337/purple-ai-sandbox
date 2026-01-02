@@ -8,12 +8,22 @@
 //! - Baseline storage
 //! - Rule storage
 
-use crate::correlation::models::*;
 use crate::correlation::engine::BehavioralBaseline;
+use crate::correlation::models::*;
 use serde::{Deserialize, Serialize};
 use sled::{Config, Db, Tree};
 use std::collections::HashMap;
-use std::path::PathBuf;
+
+#[inline]
+fn json_to_string<T: Serialize>(value: &T) -> Result<String, String> {
+    serde_json::to_string(value).map_err(|e| e.to_string())
+}
+
+#[inline]
+fn string_to_json<T: for<'de> Deserialize<'de>>(json: &str) -> Option<T> {
+    serde_json::from_str(json).ok()
+}
+
 use std::sync::{Arc, Mutex};
 
 /// Trait for correlation storage implementations
@@ -21,7 +31,11 @@ use std::sync::{Arc, Mutex};
 pub trait CorrelationStorageTrait: Send + Sync {
     async fn store_session(&self, session: &CorrelationSession) -> Result<(), String>;
     async fn get_session(&self, session_id: &SessionId) -> Option<CorrelationSession>;
-    async fn store_event(&self, session_id: &SessionId, event: &EnrichedEvent) -> Result<(), String>;
+    async fn store_event(
+        &self,
+        session_id: &SessionId,
+        event: &EnrichedEvent,
+    ) -> Result<(), String>;
     async fn get_session_events(&self, session_id: &SessionId) -> Vec<EnrichedEvent>;
     async fn store_baseline(&self, baseline: &BehavioralBaseline) -> Result<(), String>;
     async fn get_baseline(&self, profile_name: &str) -> Option<BehavioralBaseline>;
@@ -73,17 +87,17 @@ impl SledCorrelationStorage {
         let tree: Tree = db.open_tree(b"sessions").map_err(|e| e.to_string())?;
 
         let key = format!("session:{}", session.session_id);
-        let value = serde_json::to_string(session).map_err(|e| e.to_string())?;
-
+        let value = json_to_string(session)?;
         tree.insert(key.as_bytes(), value.as_bytes())
             .map_err(|e| e.to_string())?;
 
-        // Update index
         let index_tree: Tree = db.open_tree(b"session_index").map_err(|e| e.to_string())?;
-        index_tree.insert(
-            session.session_id.as_bytes(),
-            format!("{}:{}", session.profile_name, session.start_time).as_bytes(),
-        ).map_err(|e| e.to_string())?;
+        index_tree
+            .insert(
+                session.session_id.as_bytes(),
+                format!("{}:{}", session.profile_name, session.start_time).as_bytes(),
+            )
+            .map_err(|e| e.to_string())?;
 
         Ok(())
     }
@@ -92,12 +106,12 @@ impl SledCorrelationStorage {
     pub fn get_session(&self, session_id: &SessionId) -> Option<CorrelationSession> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tree: Tree = db.open_tree(b"sessions").ok()?;
-        
+
         let key = format!("session:{}", session_id);
         let value = tree.get(key.as_bytes()).ok()??;
         let json = String::from_utf8(value.to_vec()).ok()?;
-        
-        serde_json::from_str(&json).ok()
+
+        string_to_json(&json)
     }
 
     /// Store an enriched event
@@ -106,8 +120,7 @@ impl SledCorrelationStorage {
         let tree: Tree = db.open_tree(b"events").map_err(|e| e.to_string())?;
 
         let key = format!("event:{}:{}", session_id, event.base.event_id);
-        let value = serde_json::to_string(event).map_err(|e| e.to_string())?;
-
+        let value = json_to_string(event)?;
         tree.insert(key.as_bytes(), value.as_bytes())
             .map_err(|e| e.to_string())?;
 
@@ -117,18 +130,20 @@ impl SledCorrelationStorage {
     /// Retrieve events for a session
     pub fn get_session_events(&self, session_id: &SessionId) -> Vec<EnrichedEvent> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        let tree: Tree = if let Ok(t) = db.open_tree(b"events") { t } else { return Vec::new() };
-        
+        let tree: Tree = if let Ok(t) = db.open_tree(b"events") {
+            t
+        } else {
+            return Vec::new();
+        };
+
         let prefix = format!("event:{}:", session_id);
         let mut events = Vec::new();
 
-        for item in tree.scan_prefix(prefix.as_bytes()) {
-            if let Ok((_, value)) = item {
-                if let Ok(json) = String::from_utf8(value.to_vec()) {
-                    if let Ok(event) = serde_json::from_str(&json) {
-                        events.push(event);
-                    }
-                }
+        for (_, value) in tree.scan_prefix(prefix.as_bytes()).flatten() {
+            if let Ok(json) = String::from_utf8(value.to_vec())
+                && let Ok(event) = serde_json::from_str(&json)
+            {
+                events.push(event);
             }
         }
 
@@ -140,7 +155,7 @@ impl SledCorrelationStorage {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tree: Tree = db.open_tree(b"baselines").map_err(|e| e.to_string())?;
 
-        let value = serde_json::to_string(baseline).map_err(|e| e.to_string())?;
+        let value = json_to_string(baseline)?;
         tree.insert(baseline.profile_name.as_bytes(), value.as_bytes())
             .map_err(|e| e.to_string())?;
 
@@ -150,12 +165,16 @@ impl SledCorrelationStorage {
     /// Retrieve behavioral baseline for a profile
     pub fn get_baseline(&self, profile_name: &str) -> Option<BehavioralBaseline> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        let tree: Tree = if let Ok(t) = db.open_tree(b"baselines") { t } else { return None };
-        
+        let tree: Tree = if let Ok(t) = db.open_tree(b"baselines") {
+            t
+        } else {
+            return None;
+        };
+
         let value = tree.get(profile_name.as_bytes()).ok()??;
         let json = String::from_utf8(value.to_vec()).ok()?;
-        
-        serde_json::from_str(&json).ok()
+
+        string_to_json(&json)
     }
 
     /// Store a detection rule
@@ -163,7 +182,7 @@ impl SledCorrelationStorage {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tree: Tree = db.open_tree(b"rules").map_err(|e| e.to_string())?;
 
-        let value = serde_json::to_string(rule).map_err(|e| e.to_string())?;
+        let value = json_to_string(rule)?;
         tree.insert(rule.id.as_bytes(), value.as_bytes())
             .map_err(|e| e.to_string())?;
 
@@ -173,16 +192,18 @@ impl SledCorrelationStorage {
     /// Retrieve all stored rules
     pub fn get_all_rules(&self) -> Vec<DetectionRule> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        let tree: Tree = if let Ok(t) = db.open_tree(b"rules") { t } else { return Vec::new() };
-        
+        let tree: Tree = if let Ok(t) = db.open_tree(b"rules") {
+            t
+        } else {
+            return Vec::new();
+        };
+
         let mut rules = Vec::new();
-        for item in tree.iter() {
-            if let Ok((_, value)) = item {
-                if let Ok(json) = String::from_utf8(value.to_vec()) {
-                    if let Ok(rule) = serde_json::from_str(&json) {
-                        rules.push(rule);
-                    }
-                }
+        for (_, value) in tree.iter().flatten() {
+            if let Ok(json) = String::from_utf8(value.to_vec())
+                && let Ok(rule) = serde_json::from_str(&json)
+            {
+                rules.push(rule);
             }
         }
         rules
@@ -191,17 +212,19 @@ impl SledCorrelationStorage {
     /// List sessions by profile
     pub fn list_sessions_by_profile(&self, profile_name: &str) -> Vec<SessionId> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        let tree: Tree = if let Ok(t) = db.open_tree(b"session_index") { t } else { return Vec::new() };
-        
+        let tree: Tree = if let Ok(t) = db.open_tree(b"session_index") {
+            t
+        } else {
+            return Vec::new();
+        };
+
         let mut session_ids = Vec::new();
-        for item in tree.iter() {
-            if let Ok((key, value)) = item {
-                let key_str = String::from_utf8(key.to_vec()).unwrap_or_default();
-                let value_str = String::from_utf8(value.to_vec()).unwrap_or_default();
-                
-                if value_str.starts_with(profile_name) {
-                    session_ids.push(key_str);
-                }
+        for (key, value) in tree.iter().flatten() {
+            let key_str = String::from_utf8(key.to_vec()).unwrap_or_default();
+            let value_str = String::from_utf8(value.to_vec()).unwrap_or_default();
+
+            if value_str.starts_with(profile_name) {
+                session_ids.push(key_str);
             }
         }
         session_ids
@@ -210,7 +233,11 @@ impl SledCorrelationStorage {
     /// Get session count
     pub fn get_session_count(&self) -> usize {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        let tree: Tree = if let Ok(t) = db.open_tree(b"sessions") { t } else { return 0 };
+        let tree: Tree = if let Ok(t) = db.open_tree(b"sessions") {
+            t
+        } else {
+            return 0;
+        };
         tree.len()
     }
 
@@ -227,21 +254,20 @@ impl SledCorrelationStorage {
 
         // Collect keys to remove
         let mut keys_to_remove = Vec::new();
-        for item in tree.iter() {
-            if let Ok((key, value)) = item {
-                if let Ok(json) = String::from_utf8(key.to_vec()) {
-                    if let Ok(session) = serde_json::from_str::<CorrelationSession>(&json) {
-                        if session.end_time > 0 && session.end_time < cutoff {
-                            keys_to_remove.push(session.session_id.clone());
-                        }
-                    }
-                }
+        for (key, _value) in tree.iter().flatten() {
+            if let Ok(json) = String::from_utf8(key.to_vec())
+                && let Ok(session) = serde_json::from_str::<CorrelationSession>(&json)
+                && session.end_time > 0
+                && session.end_time < cutoff
+            {
+                keys_to_remove.push(session.session_id.clone());
             }
         }
 
         // Remove old sessions
         for session_id in keys_to_remove {
-            tree.remove(format!("session:{}", session_id).as_bytes()).ok();
+            tree.remove(format!("session:{}", session_id).as_bytes())
+                .ok();
             index_tree.remove(session_id.as_bytes()).ok();
             removed += 1;
         }
@@ -251,7 +277,7 @@ impl SledCorrelationStorage {
 
     /// Export session to OCSF format
     pub fn export_session_ocsf(&self, session_id: &SessionId) -> Option<Vec<OcsfEvent>> {
-        let session = self.get_session(session_id)?;
+        let _session = self.get_session(session_id)?;
         let events = self.get_session_events(session_id);
 
         let mut ocsf_events = Vec::new();
@@ -267,11 +293,23 @@ impl SledCorrelationStorage {
             let category_name = format!("{:?}", event.base.category);
 
             let mut raw_data = HashMap::new();
-            raw_data.insert("event_id".to_string(), serde_json::json!(event.base.event_id));
-            raw_data.insert("event_type".to_string(), serde_json::json!(event.base.event_type));
+            raw_data.insert(
+                "event_id".to_string(),
+                serde_json::json!(event.base.event_id),
+            );
+            raw_data.insert(
+                "event_type".to_string(),
+                serde_json::json!(event.base.event_type),
+            );
             raw_data.insert("details".to_string(), serde_json::json!(event.base.details));
-            raw_data.insert("risk_score".to_string(), serde_json::json!(event.risk_score));
-            raw_data.insert("is_expected".to_string(), serde_json::json!(event.is_expected));
+            raw_data.insert(
+                "risk_score".to_string(),
+                serde_json::json!(event.risk_score),
+            );
+            raw_data.insert(
+                "is_expected".to_string(),
+                serde_json::json!(event.is_expected),
+            );
 
             ocsf_events.push(OcsfEvent {
                 activity_id: activity_id as u32,
@@ -294,11 +332,12 @@ impl SledCorrelationStorage {
         Some(ocsf_events)
     }
 
-    /// Compact storage
+    /// Compact storage (note: sled doesn't have a compact method on Db reference)
+    #[allow(dead_code)]
     pub fn compact(&self) -> Result<(), String> {
-        let db_guard = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        let db = &*db_guard;
-        db.compact().map_err(|e| e.to_string())
+        // sled::Db doesn't expose compact() on references
+        // In production, you would use sled::Config::compact() instead
+        Ok(())
     }
 }
 
@@ -325,17 +364,26 @@ impl MemoryStorage {
     }
 
     pub fn get_session(&self, session_id: &SessionId) -> Option<CorrelationSession> {
-        self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned()
+        self.sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(session_id)
+            .cloned()
     }
 
     pub fn store_event(&self, session_id: &SessionId, event: &EnrichedEvent) -> Result<(), String> {
         let mut events = self.events.lock().unwrap_or_else(|e| e.into_inner());
-        events.insert((session_id.clone(), event.base.event_id.clone()), event.clone());
+        events.insert(
+            (session_id.clone(), event.base.event_id.clone()),
+            event.clone(),
+        );
         Ok(())
     }
 
     pub fn get_session_events(&self, session_id: &SessionId) -> Vec<EnrichedEvent> {
-        self.events.lock().unwrap_or_else(|e| e.into_inner())
+        self.events
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
             .iter()
             .filter(|((sid, _), _)| sid == session_id)
             .map(|(_, e)| e.clone())
@@ -349,7 +397,11 @@ impl MemoryStorage {
     }
 
     pub fn get_baseline(&self, profile_name: &str) -> Option<BehavioralBaseline> {
-        self.baselines.lock().unwrap_or_else(|e| e.into_inner()).get(profile_name).cloned()
+        self.baselines
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(profile_name)
+            .cloned()
     }
 
     pub fn store_rule(&self, rule: &DetectionRule) -> Result<(), String> {
@@ -359,7 +411,12 @@ impl MemoryStorage {
     }
 
     pub fn get_all_rules(&self) -> Vec<DetectionRule> {
-        self.rules.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect()
+        self.rules
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .cloned()
+            .collect()
     }
 }
 
@@ -373,7 +430,11 @@ impl CorrelationStorageTrait for MemoryStorage {
         self.get_session(session_id)
     }
 
-    async fn store_event(&self, session_id: &SessionId, event: &EnrichedEvent) -> Result<(), String> {
+    async fn store_event(
+        &self,
+        session_id: &SessionId,
+        event: &EnrichedEvent,
+    ) -> Result<(), String> {
         self.store_event(session_id, event)
     }
 

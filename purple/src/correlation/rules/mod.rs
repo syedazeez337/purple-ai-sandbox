@@ -10,7 +10,7 @@ use crate::correlation::models::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use walkdir::WalkDir;
 
@@ -22,6 +22,9 @@ pub struct RulesEngine {
     compiled_rules: Arc<Mutex<HashMap<String, CompiledRule>>>,
     enabled: bool,
 }
+
+unsafe impl Send for RulesEngine {}
+unsafe impl Sync for RulesEngine {}
 
 impl Default for RulesEngine {
     fn default() -> Self {
@@ -53,13 +56,13 @@ impl RulesEngine {
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().is_file())
         {
-            if let Some(ext) = entry.path().extension() {
-                if ext == "yaml" || ext == "yml" {
-                    match self.load_rule_file(entry.path()) {
-                        Ok(_) => loaded_count += 1,
-                        Err(e) => {
-                            log::warn!("Failed to load rule {}: {}", entry.path().display(), e)
-                        }
+            if let Some(ext) = entry.path().extension()
+                && (ext == "yaml" || ext == "yml")
+            {
+                match self.load_rule_file(entry.path()) {
+                    Ok(_) => loaded_count += 1,
+                    Err(e) => {
+                        log::warn!("Failed to load rule {}: {}", entry.path().display(), e)
                     }
                 }
             }
@@ -70,7 +73,7 @@ impl RulesEngine {
     }
 
     /// Load a single rule file
-    fn load_rule_file(&self, path: &PathBuf) -> Result<(), String> {
+    fn load_rule_file(&self, path: &Path) -> Result<(), String> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| format!("Failed to read rule file: {}", e))?;
 
@@ -93,8 +96,10 @@ impl RulesEngine {
 
     /// Add a custom rule
     pub fn add_rule(&self, rule: DetectionRule) {
-        let mut rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
-        rules.push(rule);
+        {
+            let mut rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
+            rules.push(rule);
+        }
         self.recompile_rules();
     }
 
@@ -123,6 +128,7 @@ impl RulesEngine {
             conditions: Vec::new(),
         };
 
+        #[allow(clippy::regex_creation_in_loops)]
         for cond in &rule.conditions {
             let compiled_cond = match cond.operator {
                 ConditionOperator::Contains => CompiledCondition::Contains(
@@ -187,7 +193,7 @@ impl RulesEngine {
 
     /// Evaluate a condition against an event
     fn evaluate_condition(&self, cond: &CompiledCondition, event: &EnrichedEvent) -> bool {
-        let (field, result) = match cond {
+        let (_field, result) = match cond {
             CompiledCondition::Equals(field, expected) => {
                 let value = self.get_event_value(field, event);
                 (field.clone(), value == *expected)
@@ -332,7 +338,7 @@ impl SigmaRule {
     pub fn to_detection_rule(&self) -> Option<DetectionRule> {
         let detection = self.detection.as_ref()?;
         let selection = detection.selection.as_ref()?;
-        let condition = detection.condition.as_ref()?;
+        let _condition = detection.condition.as_ref()?;
 
         let mut conditions = Vec::new();
 
@@ -377,28 +383,29 @@ pub fn get_builtin_rules() -> Vec<DetectionRule> {
     vec![
         // File exfiltration detection
         DetectionRule {
-            id: "builtin_file_exfil_001",
-            name: "File Exfiltration Pattern",
+            id: "builtin_file_exfil_001".to_string(),
+            name: "File Exfiltration Pattern".to_string(),
             description:
-                "Detect potential file exfiltration: multiple reads followed by network connections",
+                "Detect potential file exfiltration: multiple reads followed by network connections"
+                    .to_string(),
             severity: Severity::Critical,
             conditions: vec![RuleCondition {
-                field: "category",
+                field: "category".to_string(),
                 operator: ConditionOperator::Equals,
                 value: serde_json::json!("FileAccess"),
             }],
             actions: vec![RuleAction::Alert, RuleAction::Score(30.0)],
             enabled: true,
-            tags: vec!["exfiltration", "data-loss".to_string()],
+            tags: vec!["exfiltration".to_string(), "data-loss".to_string()],
         },
         // Privilege escalation detection
         DetectionRule {
-            id: "builtin_priv_esc_001",
-            name: "Privilege Escalation Attempt",
-            description: "Detect privilege escalation via setuid/setgid",
+            id: "builtin_priv_esc_001".to_string(),
+            name: "Privilege Escalation Attempt".to_string(),
+            description: "Detect privilege escalation via setuid/setgid".to_string(),
             severity: Severity::Critical,
             conditions: vec![RuleCondition {
-                field: "details",
+                field: "details".to_string(),
                 operator: ConditionOperator::Contains,
                 value: serde_json::json!("setuid"),
             }],
@@ -408,27 +415,27 @@ pub fn get_builtin_rules() -> Vec<DetectionRule> {
         },
         // Shell spawning detection
         DetectionRule {
-            id: "builtin_shell_001",
-            name: "Shell Spawn Detected",
-            description: "Detect shell spawning from unusual process",
+            id: "builtin_shell_001".to_string(),
+            name: "Shell Spawn Detected".to_string(),
+            description: "Detect shell spawning from unusual process".to_string(),
             severity: Severity::High,
             conditions: vec![RuleCondition {
-                field: "details",
+                field: "details".to_string(),
                 operator: ConditionOperator::Contains,
                 value: serde_json::json!("execve"),
             }],
             actions: vec![RuleAction::Alert],
             enabled: true,
-            tags: vec!["execution", "shell".to_string()],
+            tags: vec!["execution".to_string(), "shell".to_string()],
         },
         // Mass file access detection
         DetectionRule {
-            id: "builtin_mass_access_001",
-            name: "Mass File Access",
-            description: "Detect unusual number of file access operations",
+            id: "builtin_mass_access_001".to_string(),
+            name: "Mass File Access".to_string(),
+            description: "Detect unusual number of file access operations".to_string(),
             severity: Severity::Medium,
             conditions: vec![RuleCondition {
-                field: "category",
+                field: "category".to_string(),
                 operator: ConditionOperator::Equals,
                 value: serde_json::json!("FileAccess"),
             }],
@@ -438,12 +445,12 @@ pub fn get_builtin_rules() -> Vec<DetectionRule> {
         },
         // Suspicious network connections
         DetectionRule {
-            id: "builtin_network_suspicious_001",
-            name: "Suspicious Network Connection",
-            description: "Detect connections to suspicious ports",
+            id: "builtin_network_suspicious_001".to_string(),
+            name: "Suspicious Network Connection".to_string(),
+            description: "Detect connections to suspicious ports".to_string(),
             severity: Severity::High,
             conditions: vec![RuleCondition {
-                field: "category",
+                field: "category".to_string(),
                 operator: ConditionOperator::Equals,
                 value: serde_json::json!("Network"),
             }],
@@ -453,12 +460,12 @@ pub fn get_builtin_rules() -> Vec<DetectionRule> {
         },
         // Persistence attempt
         DetectionRule {
-            id: "builtin_persistence_001",
-            name: "Persistence Attempt",
-            description: "Detect file creation in startup locations",
+            id: "builtin_persistence_001".to_string(),
+            name: "Persistence Attempt".to_string(),
+            description: "Detect file creation in startup locations".to_string(),
             severity: Severity::High,
             conditions: vec![RuleCondition {
-                field: "details",
+                field: "details".to_string(),
                 operator: ConditionOperator::Contains,
                 value: serde_json::json!("/etc/"),
             }],

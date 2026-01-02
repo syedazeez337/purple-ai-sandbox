@@ -42,16 +42,16 @@
 //! └─────────────────────────────────────────────────────────────────────┘
 //! ```
 
-pub mod engine;
-pub mod models;
-pub mod enrichment;
-pub mod rules;
-pub mod storage;
 pub mod api;
 pub mod cli;
+pub mod engine;
+pub mod enrichment;
+pub mod models;
+pub mod rules;
+pub mod storage;
 
-pub use models::*;
 pub use engine::*;
+pub use models::*;
 pub use storage::*;
 
 /// Current version of the correlation engine

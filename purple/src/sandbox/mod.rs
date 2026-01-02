@@ -13,7 +13,6 @@ use nix::unistd::{ForkResult, execve, fork, pipe};
 use std::ffi::CString;
 use std::fs;
 
-use std::path::Path;
 use std::process::{Command, Stdio};
 
 pub mod capabilities;
@@ -28,6 +27,8 @@ pub mod syscall_table;
 pub mod ebpf;
 
 pub mod manager;
+
+pub mod config;
 
 /// Global flag to signal shutdown from signal handler
 use once_cell::sync::Lazy;
@@ -64,7 +65,7 @@ impl Sandbox {
     pub fn new(policy: CompiledPolicy, agent_command: Vec<String>) -> Self {
         // Generate sandbox ID upfront so parent and child can both reference the same cgroup
         let sandbox_id = cgroups::generate_sandbox_id();
-        let sandbox_root = std::path::PathBuf::from(format!("/tmp/purple-sandbox-{}", sandbox_id));
+        let sandbox_root = config::sandbox_root_for_id(&sandbox_id);
 
         // Initialize AI components
         let api_monitor = LLMAPIMonitor::new();
@@ -297,7 +298,7 @@ impl Sandbox {
 
         log::info!("Cleaning up orphaned filesystems...");
 
-        let sandbox_root = Path::new("/tmp/purple-sandbox");
+        let sandbox_root = config::sandbox_root();
         if !sandbox_root.exists() {
             log::info!("No orphaned sandbox filesystem found");
             return Ok(());
@@ -310,7 +311,7 @@ impl Sandbox {
         let mut is_safe_to_clean = true;
         let mut entry_count = 0;
 
-        if let Ok(entries) = fs::read_dir(sandbox_root) {
+        if let Ok(entries) = fs::read_dir(&sandbox_root) {
             for entry in entries.flatten() {
                 entry_count += 1;
                 let entry_path = entry.path();
@@ -325,7 +326,7 @@ impl Sandbox {
         }
 
         if is_safe_to_clean && entry_count > 0 {
-            match fs::remove_dir_all(sandbox_root) {
+            match fs::remove_dir_all(&sandbox_root) {
                 Ok(_) => {
                     log::info!("✓ Cleaned up orphaned sandbox filesystem");
                 }
@@ -335,7 +336,7 @@ impl Sandbox {
             }
         } else if entry_count == 0 {
             // Empty directory, safe to remove
-            if let Err(e) = fs::remove_dir(sandbox_root) {
+            if let Err(e) = fs::remove_dir(&sandbox_root) {
                 log::warn!("⚠️  Failed to remove empty sandbox directory: {}", e);
             } else {
                 log::info!("✓ Removed empty sandbox directory");
@@ -623,7 +624,7 @@ impl Sandbox {
 
                 // Build environment with proper PATH for the sandbox
                 // After pivot_root, we need to ensure PATH points to accessible directories
-                let sandbox_path = "/usr/local/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+                let sandbox_path = config::sandbox_path();
                 let env_path = CString::new(format!("PATH={}", sandbox_path)).unwrap();
                 let env_home = CString::new("HOME=/tmp").unwrap();
                 let env_shell = CString::new("SHELL=/bin/sh").unwrap();
