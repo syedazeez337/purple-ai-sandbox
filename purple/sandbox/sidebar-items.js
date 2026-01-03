@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["setup_parent_signal_handlers","shutdown_requested"],"mod":["capabilities","cgroups","filesystem","linux_namespaces","manager","network","seccomp","syscall_table"],"static":["SHUTDOWN_REQUESTED"],"struct":["Sandbox"]};
+window.SIDEBAR_ITEMS = {"fn":["setup_parent_signal_handlers","shutdown_requested"],"mod":["capabilities","cgroups","config","filesystem","linux_namespaces","manager","network","seccomp","syscall_table"],"static":["SHUTDOWN_REQUESTED"],"struct":["Sandbox"]};

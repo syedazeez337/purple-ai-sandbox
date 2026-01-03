@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["entropy","iqr","mean","rolling_average","standard_deviation","z_score"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["CORRELATION_VERSION"],"mod":["api","cli","engine","enrichment","models","rules","storage"],"struct":["DefaultCorrelationConfig"]};
