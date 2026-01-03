@@ -69,7 +69,7 @@ fn test_manager_resource_allocation_lifecycle() {
 
     // Check if we can allocate
     let sandbox_id = manager
-        .create_sandbox(policy, command)
+        .create_sandbox(policy, command, "test-profile".to_string())
         .expect("Failed to create sandbox");
 
     // Check allocation increased
@@ -98,13 +98,21 @@ fn test_manager_resource_limit_enforcement() {
     let mut huge_cpu_policy = create_test_policy("huge-cpu");
     huge_cpu_policy.resources.cpu_shares = Some(100.0); // Request 100 CPUs
 
-    let result = manager.create_sandbox(huge_cpu_policy, vec!["echo".to_string()]);
+    let result = manager.create_sandbox(
+        huge_cpu_policy,
+        vec!["echo".to_string()],
+        "test-profile".to_string(),
+    );
     assert!(result.is_err(), "Should fail to allocate 100 CPUs");
 
     // Create a policy that requests too much Memory
     let mut huge_mem_policy = create_test_policy("huge-mem");
     huge_mem_policy.resources.memory_limit_bytes = Some(100 * 1024 * 1024 * 1024); // 100GB
 
-    let result = manager.create_sandbox(huge_mem_policy, vec!["echo".to_string()]);
+    let result = manager.create_sandbox(
+        huge_mem_policy,
+        vec!["echo".to_string()],
+        "test-profile".to_string(),
+    );
     assert!(result.is_err(), "Should fail to allocate 100GB RAM");
 }

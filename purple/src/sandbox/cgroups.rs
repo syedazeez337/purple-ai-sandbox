@@ -2,6 +2,7 @@
 
 use crate::error::Result;
 use crate::policy::compiler::CompiledResourcePolicy;
+use crate::sandbox::config;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -16,7 +17,7 @@ impl CgroupManager {
     /// Creates a new cgroup manager for the sandbox
     pub fn new(sandbox_id: &str) -> Self {
         let cgroup_name = format!("purple-sandbox-{}", sandbox_id);
-        let cgroup_path = PathBuf::from(format!("/sys/fs/cgroup/purple/{}", cgroup_name));
+        let cgroup_path = config::cgroup_path_for_id(sandbox_id);
 
         CgroupManager {
             cgroup_name,
@@ -80,7 +81,7 @@ impl CgroupManager {
         log::info!("Cgroup path: {}", self.cgroup_path.display());
 
         // Ensure parent cgroup directory exists and has controllers enabled
-        let parent_cgroup_path = PathBuf::from("/sys/fs/cgroup/purple");
+        let parent_cgroup_path = config::cgroup_parent_path();
         if !parent_cgroup_path.exists() {
             if let Err(e) = fs::create_dir_all(&parent_cgroup_path) {
                 return Err(crate::error::PurpleError::ResourceError(format!(
@@ -290,11 +291,7 @@ impl CgroupManager {
         log::info!("Validating cgroup functionality...");
 
         // Check if cgroup filesystem is mounted
-        let cgroup_mounts = [
-            "/sys/fs/cgroup",
-            "/sys/fs/cgroup/unified",
-            "/sys/fs/cgroup/purple",
-        ];
+        let cgroup_mounts = ["/sys/fs/cgroup", "/sys/fs/cgroup/unified"];
 
         let mut found_cgroup = false;
         for mount_point in &cgroup_mounts {
@@ -311,8 +308,23 @@ impl CgroupManager {
             ));
         }
 
+        // Check if our purple cgroup parent exists
+        let purple_cgroup_path = config::cgroup_parent_path();
+        if !purple_cgroup_path.exists() {
+            log::info!(
+                "Creating purple cgroup parent directory: {}",
+                purple_cgroup_path.display()
+            );
+            if let Err(e) = fs::create_dir_all(&purple_cgroup_path) {
+                return Err(crate::error::PurpleError::ResourceError(format!(
+                    "Failed to create purple cgroup directory: {}",
+                    e
+                )));
+            }
+        }
+
         // Test creating a temporary cgroup directory
-        let test_cgroup_path = PathBuf::from("/sys/fs/cgroup/purple/test_validation");
+        let test_cgroup_path = purple_cgroup_path.join("test_validation");
         match fs::create_dir_all(&test_cgroup_path) {
             Ok(_) => {
                 // Successfully created, now clean up
@@ -492,7 +504,7 @@ impl CgroupManager {
 
         log::info!("Cleaning up orphaned cgroups...");
 
-        let purple_cgroup_path = PathBuf::from("/sys/fs/cgroup/purple");
+        let purple_cgroup_path = config::cgroup_parent_path();
         if !purple_cgroup_path.exists() {
             log::info!("No purple cgroups found - nothing to clean up");
             return Ok(());
@@ -597,6 +609,76 @@ impl CgroupManager {
             cleaned_count
         );
         Ok(())
+    }
+
+    /// Reads CPU usage statistics from cgroup
+    pub fn get_cpu_stats(&self) -> Result<f64> {
+        let cpu_stat_path = self.cgroup_path.join("cpu.stat");
+
+        let content = fs::read_to_string(&cpu_stat_path).map_err(|e| {
+            crate::error::PurpleError::ResourceError(format!("Failed to read cpu.stat: {}", e))
+        })?;
+
+        // Parse usage_usec value
+        for line in content.lines() {
+            if line.starts_with("usage_usec") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() == 2 {
+                    let usec: u64 = parts[1].parse().map_err(|e| {
+                        crate::error::PurpleError::ResourceError(format!(
+                            "Failed to parse cpu usage: {}",
+                            e
+                        ))
+                    })?;
+                    return Ok(usec as f64 / 1_000_000.0); // Convert to seconds
+                }
+            }
+        }
+
+        Err(crate::error::PurpleError::ResourceError(
+            "usage_usec not found in cpu.stat".to_string(),
+        ))
+    }
+
+    /// Reads peak memory usage from cgroup
+    pub fn get_memory_peak(&self) -> Result<u64> {
+        let mem_peak_path = self.cgroup_path.join("memory.peak");
+
+        let content = fs::read_to_string(&mem_peak_path).map_err(|e| {
+            crate::error::PurpleError::ResourceError(format!("Failed to read memory.peak: {}", e))
+        })?;
+
+        content.trim().parse::<u64>().map_err(|e| {
+            crate::error::PurpleError::ResourceError(format!("Failed to parse memory peak: {}", e))
+        })
+    }
+
+    /// Reads I/O statistics from cgroup
+    pub fn get_io_stats(&self) -> Result<u64> {
+        let io_stat_path = self.cgroup_path.join("io.stat");
+
+        let content: String = fs::read_to_string(&io_stat_path).map_err(|e| {
+            crate::error::PurpleError::ResourceError(format!("Failed to read io.stat: {}", e))
+        })?;
+
+        let mut total_bytes = 0u64;
+
+        // Parse rbytes and wbytes for all devices
+        for line in content.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            for part in parts.iter() {
+                if (part.starts_with("rbytes=") || part.starts_with("wbytes="))
+                    && let Some(eq_pos) = part.find('=')
+                {
+                    let value_str = &part[eq_pos + 1..];
+                    if let Ok(bytes) = value_str.parse::<u64>() {
+                        total_bytes += bytes;
+                    }
+                }
+            }
+        }
+
+        Ok(total_bytes)
     }
 }
 

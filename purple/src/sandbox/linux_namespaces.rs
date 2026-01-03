@@ -1,11 +1,12 @@
 // purple/src/sandbox/linux_namespaces.rs
 
+use crate::sandbox::config;
 use nix::sched::{CloneFlags, unshare};
 use nix::unistd::{Gid, Uid, setresgid, setresuid};
-use std::ffi::CStr; // Added import
+use std::ffi::CStr;
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf}; // Added Path import
+use std::path::Path;
 
 /// Creates a new user namespace and maps the current user and group IDs.
 ///
@@ -32,10 +33,13 @@ pub fn unshare_user_namespace() -> Result<(Uid, Gid), String> {
         })?;
     log::info!("User namespace unshared.");
 
+    // Get proc path from config
+    let proc_path = config::proc_path();
+
     // Write "deny" to setgroups FIRST.
     // This is strictly required before writing to gid_map for unprivileged users,
     // and good practice to do early.
-    let setgroups_path = PathBuf::from("/proc/self/setgroups");
+    let setgroups_path = proc_path.join("self/setgroups");
     match fs::File::options().write(true).open(&setgroups_path) {
         Ok(mut setgroups_file) => {
             if let Err(e) = setgroups_file.write_all(b"deny\n") {
@@ -76,7 +80,7 @@ pub fn unshare_user_namespace() -> Result<(Uid, Gid), String> {
     }
 
     // Write UID map
-    let uid_map_path = PathBuf::from("/proc/self/uid_map");
+    let uid_map_path = proc_path.join("self/uid_map");
     match fs::File::options().write(true).open(&uid_map_path) {
         Ok(mut uid_map_file) => {
             let uid_map_content = format!("0 {} 1\n", ruid);
@@ -94,7 +98,7 @@ pub fn unshare_user_namespace() -> Result<(Uid, Gid), String> {
     }
 
     // Write GID map
-    let gid_map_path = PathBuf::from("/proc/self/gid_map");
+    let gid_map_path = proc_path.join("self/gid_map");
     match fs::File::options().write(true).open(&gid_map_path) {
         Ok(mut gid_map_file) => {
             let gid_map_content = format!("0 {} 1\n", rgid);

@@ -46,6 +46,15 @@ sysinfo = "0.37.2"
 # API dependencies
 axum = { workspace = true }
 
+# Correlation engine dependencies
+sled = "0.34"
+lru-cache = "0.1"
+url = "2"
+walkdir = "2"
+tokio-stream = "0.1"
+rayon = "1.10"
+async-trait = "0.1"
+
 [dev-dependencies]
 tempfile = { workspace = true }
 proptest = "1.4"

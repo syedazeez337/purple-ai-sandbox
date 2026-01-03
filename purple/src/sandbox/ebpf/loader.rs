@@ -6,6 +6,8 @@
 use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::sync::mpsc;
+use tokio::time::{Duration, interval};
 
 #[cfg(feature = "ebpf")]
 use aya::Ebpf;
@@ -37,6 +39,12 @@ pub struct EbpfConfig {
     pub enable_network_filter: bool,
 }
 
+/// Event callback type for processing eBPF events asynchronously
+pub type EbpfEventCallback = Arc<dyn Fn(EbpfEvent) + Send + Sync>;
+
+/// Receiver type for consuming eBPF events asynchronously
+pub type EbpfEventReceiver = mpsc::Receiver<EbpfEvent>;
+
 /// eBPF loader and manager
 #[cfg(feature = "ebpf")]
 pub struct EbpfLoader {
@@ -53,8 +61,11 @@ pub struct EbpfLoader {
     /// Flag to indicate if programs are attached
     attached: bool,
     /// Flag to signal shutdown
-    #[allow(dead_code)] // TODO: Use in async shutdown logic
     shutdown: Arc<AtomicBool>,
+    /// Event callback for async processing
+    callback: Option<EbpfEventCallback>,
+    /// Event sender for channel-based delivery
+    event_tx: Option<mpsc::Sender<EbpfEvent>>,
 }
 
 #[cfg(not(feature = "ebpf"))]
@@ -82,7 +93,73 @@ impl EbpfLoader {
             config,
             attached: false,
             shutdown: Arc::new(AtomicBool::new(false)),
+            callback: None,
+            event_tx: None,
         })
+    }
+
+    /// Set an event callback for synchronous event processing
+    pub fn set_callback(&mut self, callback: EbpfEventCallback) {
+        self.callback = Some(callback);
+    }
+
+    /// Create an async event channel and return the receiver
+    /// Events sent to this channel will be processed asynchronously
+    pub fn create_event_channel(&mut self, buffer_size: usize) -> EbpfEventReceiver {
+        let (tx, rx) = mpsc::channel::<EbpfEvent>(buffer_size);
+        self.event_tx = Some(tx);
+        rx
+    }
+
+    /// Run the async event polling loop
+    /// This should be called in a tokio task/async context
+    /// It continuously polls events and either:
+    /// - Calls the configured callback (if set)
+    /// - Sends events to the channel (if configured)
+    /// Returns when shutdown is signaled
+    pub async fn run_event_loop(&mut self) {
+        log::info!("Starting eBPF event loop");
+        let mut poll_interval = interval(Duration::from_millis(10));
+
+        #[cfg(feature = "ebpf")]
+        {
+            while !self.shutdown.load(Ordering::SeqCst) {
+                poll_interval.tick().await;
+
+                match self.poll_events() {
+                    Ok(events) => {
+                        for event in events {
+                            self.process_event(&event);
+                        }
+                    }
+                    Err(e) => {
+                        log::debug!("Error polling eBPF events: {}", e);
+                    }
+                }
+            }
+        }
+
+        log::info!("eBPF event loop shutdown complete");
+    }
+
+    /// Process a single event through callback or channel
+    fn process_event(&self, event: &EbpfEvent) {
+        // Send to callback if configured
+        if let Some(ref callback) = self.callback {
+            callback(event.clone());
+        }
+
+        // Send to channel if configured
+        if let Some(ref tx) = self.event_tx {
+            let _ = tx.try_send(event.clone());
+        }
+    }
+
+    /// Get a future that completes when shutdown is signaled
+    pub async fn wait_for_shutdown(&self) {
+        while !self.shutdown.load(Ordering::SeqCst) {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
     }
 
     /// Load all configured eBPF programs from the compiled bytecode
@@ -511,37 +588,31 @@ impl EbpfLoader {
     }
 
     /// Poll events asynchronously with timeout
-    #[allow(dead_code)] // TODO: Use for async event polling
     pub async fn poll_events_async(
         &mut self,
         timeout_ms: u64,
     ) -> Result<Vec<EbpfEvent>, EbpfError> {
-        // For now, do a simple poll with sleep
-        // A more sophisticated implementation would use epoll/AsyncFd
-        tokio::time::sleep(std::time::Duration::from_millis(timeout_ms.min(10))).await;
+        let timeout = std::time::Duration::from_millis(timeout_ms.min(10));
+        tokio::time::sleep(timeout).await;
         self.poll_events()
     }
 
     /// Signal shutdown to stop event polling
-    #[allow(dead_code)] // TODO: Use for graceful shutdown
     pub fn shutdown(&self) {
         self.shutdown.store(true, Ordering::SeqCst);
     }
 
     /// Check if shutdown was signaled
-    #[allow(dead_code)] // TODO: Use for shutdown status checking
     pub fn is_shutdown(&self) -> bool {
         self.shutdown.load(Ordering::SeqCst)
     }
 
     /// Check if programs are attached
-    #[allow(dead_code)] // TODO: Use for attachment status checking
     pub fn is_attached(&self) -> bool {
         self.attached
     }
 
     /// Get the shutdown flag for sharing with other threads
-    #[allow(dead_code)] // TODO: Use for external shutdown control
     pub fn shutdown_flag(&self) -> Arc<AtomicBool> {
         self.shutdown.clone()
     }
@@ -571,6 +642,8 @@ impl Default for EbpfLoader {
                     config: EbpfConfig::default(),
                     attached: false,
                     shutdown: Arc::new(AtomicBool::new(false)),
+                    callback: None,
+                    event_tx: None,
                 }
             }
             #[cfg(not(feature = "ebpf"))]
@@ -607,13 +680,10 @@ pub enum EbpfError {
     /// Map operation error
     MapError(String),
     /// Channel closed
-    #[allow(dead_code)] // TODO: Use for channel error handling
     ChannelClosed,
     /// eBPF not supported on this system
-    #[allow(dead_code)] // TODO: Use for platform compatibility
     NotSupported,
     /// Feature not enabled
-    #[allow(dead_code)] // TODO: Use for feature detection
     FeatureNotEnabled(String),
     /// IO error
     IoError(String),

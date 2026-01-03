@@ -1,5 +1,6 @@
 use crate::error::{PurpleError, Result};
 use crate::policy::compiler::CompiledPolicy;
+use crate::sandbox::config;
 use nix::mount::{MntFlags, MsFlags, mount, umount2};
 use nix::unistd::{chdir, chroot};
 use std::fs;
@@ -514,7 +515,7 @@ pub fn setup_filesystem(policy: &CompiledPolicy, sandbox_root: &Path) -> Result<
     // ============================================================
 
     // Mount fresh procfs (required for /proc/PID operations)
-    let proc_path = Path::new("/proc");
+    let proc_path = config::proc_path();
     if let Err(e) = mount(
         Some("proc"),
         proc_path,
@@ -530,7 +531,7 @@ pub fn setup_filesystem(policy: &CompiledPolicy, sandbox_root: &Path) -> Result<
     log::info!("Mounted proc filesystem");
 
     // Mount /sys as read-only
-    let sys_path = Path::new("/sys");
+    let sys_path = config::sys_path();
     if let Err(e) = mount(
         Some("sysfs"),
         sys_path,
@@ -848,26 +849,26 @@ fn create_device_node(path: &Path, mode: u32, major: u64, minor: u64) -> Result<
 /// This is a critical safety net for namespace propagation issues.
 fn verify_and_repair_bind_mounts(policy: &CompiledPolicy) -> Result<()> {
     // Essential directories that must be visible for command execution
-    let essential_paths = ["/usr/bin", "/bin", "/usr/lib", "/lib", "/lib64"];
+    let essential_paths = config::essential_host_paths();
 
-    for sandbox_path in &essential_paths {
+    for sandbox_path in essential_paths {
         // Skip if not in the policy's immutable mounts (user didn't request it)
         let is_configured = policy
             .filesystem
             .immutable_mounts
             .iter()
-            .any(|(_, sand_path)| sand_path == Path::new(sandbox_path));
+            .any(|(_, sand_path)| sand_path == Path::new(&sandbox_path));
         if !is_configured {
             continue;
         }
 
-        let inside_sandbox = Path::new(sandbox_path);
+        let inside_sandbox = Path::new(&sandbox_path);
 
         // Check if the path is accessible inside the sandbox
         if !inside_sandbox.exists() {
             log::warn!(
                 "Bind mount {} is not visible after pivot_root, attempting repair...",
-                sandbox_path
+                sandbox_path.display()
             );
 
             // Try to find the corresponding host path
@@ -901,14 +902,14 @@ fn verify_and_repair_bind_mounts(policy: &CompiledPolicy) -> Result<()> {
                     log::error!(
                         "Failed to repair bind mount {} -> {}: {}",
                         host_path.display(),
-                        sandbox_path,
+                        sandbox_path.display(),
                         e
                     );
                 } else {
                     log::info!(
                         "✓ Repaired bind mount: {} -> {}",
                         host_path.display(),
-                        sandbox_path
+                        sandbox_path.display()
                     );
                 }
             }
@@ -919,7 +920,7 @@ fn verify_and_repair_bind_mounts(policy: &CompiledPolicy) -> Result<()> {
                 if count == 0 {
                     log::warn!(
                         "Bind mount {} is empty ({} entries), attempting repair...",
-                        sandbox_path,
+                        sandbox_path.display(),
                         count
                     );
 
@@ -944,19 +945,23 @@ fn verify_and_repair_bind_mounts(policy: &CompiledPolicy) -> Result<()> {
                             log::error!(
                                 "Failed to repair empty bind mount {} -> {}: {}",
                                 host_path.display(),
-                                sandbox_path,
+                                sandbox_path.display(),
                                 e
                             );
                         } else {
                             log::info!(
                                 "✓ Repaired empty bind mount: {} -> {}",
                                 host_path.display(),
-                                sandbox_path
+                                sandbox_path.display()
                             );
                         }
                     }
                 } else {
-                    log::debug!("✓ Bind mount {} verified ({} entries)", sandbox_path, count);
+                    log::debug!(
+                        "✓ Bind mount {} verified ({} entries)",
+                        sandbox_path.display(),
+                        count
+                    );
                 }
             }
         }
