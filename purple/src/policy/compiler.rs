@@ -332,13 +332,36 @@ pub enum CompiledComparison {
     MaskedNotEqual { mask: u64, value: u64 },
 }
 
+/// Compiled disk I/O limits with resolved byte values.
+#[derive(Debug, Clone, Default)]
+pub struct CompiledBlockIoLimit {
+    /// Read bandwidth limit in bytes per second (None = unlimited).
+    pub read_bps: Option<u64>,
+    /// Write bandwidth limit in bytes per second (None = unlimited).
+    pub write_bps: Option<u64>,
+    /// Maximum read I/O operations per second (None = unlimited).
+    pub read_iops: Option<u64>,
+    /// Maximum write I/O operations per second (None = unlimited).
+    pub write_iops: Option<u64>,
+}
+
+impl CompiledBlockIoLimit {
+    /// Returns true if at least one limit is specified.
+    pub fn has_limits(&self) -> bool {
+        self.read_bps.is_some()
+            || self.write_bps.is_some()
+            || self.read_iops.is_some()
+            || self.write_iops.is_some()
+    }
+}
+
 /// Compiled resource limits.
 #[derive(Debug, Clone, Default)]
 pub struct CompiledResourcePolicy {
     pub cpu_shares: Option<f64>,
     pub memory_limit_bytes: Option<u64>, // Parsed into bytes
     pub pids_limit: Option<u64>,
-    pub block_io_limit_bytes_per_sec: Option<u64>, // Parsed into bytes/sec
+    pub block_io_limit: CompiledBlockIoLimit, // Parsed disk I/O limits
     pub session_timeout_seconds: Option<u64>,
 }
 
@@ -349,7 +372,7 @@ impl CompiledResourcePolicy {
         self.cpu_shares.is_some()
             || self.memory_limit_bytes.is_some()
             || self.pids_limit.is_some()
-            || self.block_io_limit_bytes_per_sec.is_some()
+            || self.block_io_limit.has_limits()
     }
 }
 
@@ -574,20 +597,52 @@ impl Policy {
             None
         };
 
-        let block_io_limit_bytes_per_sec = if let Some(io_str) = &self.resources.block_io_limit {
-            Some(
-                parse_io_rate(io_str)
-                    .map_err(|e| format!("Invalid block_io_limit '{}': {}", io_str, e))?,
-            )
-        } else {
-            None
-        };
+        let compiled_block_io_limit =
+            match &self.resources.block_io_limit {
+                None => CompiledBlockIoLimit::default(),
+                Some(super::BlockIoLimitConfig::Simple(rate_str)) => {
+                    let bps = parse_io_rate(rate_str)
+                        .map_err(|e| format!("Invalid block_io_limit '{}': {}", rate_str, e))?;
+                    CompiledBlockIoLimit {
+                        read_bps: Some(bps),
+                        write_bps: Some(bps),
+                        read_iops: None,
+                        write_iops: None,
+                    }
+                }
+                Some(super::BlockIoLimitConfig::Detailed(limit)) => {
+                    let read_bps = limit
+                        .read_bps
+                        .as_deref()
+                        .map(|s| {
+                            parse_io_rate(s).map_err(|e| {
+                                format!("Invalid block_io_limit.read_bps '{}': {}", s, e)
+                            })
+                        })
+                        .transpose()?;
+                    let write_bps = limit
+                        .write_bps
+                        .as_deref()
+                        .map(|s| {
+                            parse_io_rate(s).map_err(|e| {
+                                format!("Invalid block_io_limit.write_bps '{}': {}", s, e)
+                            })
+                        })
+                        .transpose()?;
+                    CompiledBlockIoLimit {
+                        read_bps,
+                        write_bps,
+                        read_iops: limit.read_iops,
+                        write_iops: limit.write_iops,
+                    }
+                }
+            };
 
         let compiled_resources = CompiledResourcePolicy {
             cpu_shares: self.resources.cpu_shares,
             memory_limit_bytes,
             pids_limit: self.resources.pids_limit,
-            block_io_limit_bytes_per_sec,
+            block_io_limit: compiled_block_io_limit,
             session_timeout_seconds: self.resources.session_timeout_seconds,
         };
 

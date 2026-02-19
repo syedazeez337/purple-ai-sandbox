@@ -689,7 +689,14 @@ resources:
   memory_limit_bytes: "2G"           # Memory limit (supports K, M, G)
   pids_limit: 100                    # Max number of processes
   session_timeout_seconds: 3600      # Session timeout in seconds
-  block_io_limit_bytes_per_sec: "100M"  # I/O rate limit
+  # Simple I/O limit (applies same bandwidth to reads and writes):
+  block_io_limit: "100MBps"
+  # Or detailed I/O limits with separate read/write bandwidth and IOPS:
+  # block_io_limit:
+  #   read_bps: "100MBps"            # Read bandwidth limit
+  #   write_bps: "50MBps"            # Write bandwidth limit
+  #   read_iops: 1000                # Max read IOPS
+  #   write_iops: 500                # Max write IOPS
 ```
 
 ### Network Configuration

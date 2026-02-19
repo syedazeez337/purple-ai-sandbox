@@ -4,8 +4,9 @@
 // These tests verify that security policies are actually enforced, not just logged.
 
 use crate::policy::compiler::{
-    CompiledAuditPolicy, CompiledCapabilityPolicy, CompiledFilesystemPolicy, CompiledNetworkPolicy,
-    CompiledPolicy, CompiledResourcePolicy, CompiledSyscallPolicy,
+    CompiledAuditPolicy, CompiledBlockIoLimit, CompiledCapabilityPolicy,
+    CompiledFilesystemPolicy, CompiledNetworkPolicy, CompiledPolicy, CompiledResourcePolicy,
+    CompiledSyscallPolicy,
 };
 use crate::sandbox::Sandbox;
 use crate::sandbox::cgroups::{CgroupManager, generate_sandbox_id};
@@ -37,7 +38,11 @@ fn create_test_policy(name: &str) -> CompiledPolicy {
             cpu_shares: Some(0.5),
             memory_limit_bytes: Some(2 * 1024 * 1024 * 1024), // 2GB
             pids_limit: Some(100),
-            block_io_limit_bytes_per_sec: Some(100 * 1024 * 1024), // 100MB/s
+            block_io_limit: CompiledBlockIoLimit {
+                read_bps: Some(100 * 1024 * 1024),  // 100MB/s
+                write_bps: Some(100 * 1024 * 1024), // 100MB/s
+                ..Default::default()
+            },
             session_timeout_seconds: Some(60),
         },
         capabilities: CompiledCapabilityPolicy {

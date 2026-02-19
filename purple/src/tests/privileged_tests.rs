@@ -33,7 +33,7 @@ fn create_privileged_policy(name: &str) -> CompiledPolicy {
             cpu_shares: None,
             memory_limit_bytes: None,
             pids_limit: None,
-            block_io_limit_bytes_per_sec: None,
+            block_io_limit: Default::default(),
             session_timeout_seconds: None,
         },
         capabilities: CompiledCapabilityPolicy {
