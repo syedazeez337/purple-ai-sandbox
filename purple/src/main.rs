@@ -1118,117 +1118,132 @@ audit:
             }
         }
         Commands::Audit(args) => {
-            println!("Generating audit report...");
+            let state_path = std::path::Path::new("./sessions/manager-state.json");
+            let audit_log_path = std::path::Path::new("./logs/audit.log");
 
-            // Determine what to audit
-            // Use --all flag or default to auditing all sessions if no specific session given
-            let audit_all = args.all || args.session.is_none();
-            let target_path = if audit_all {
-                // Audit all sessions
-                "./sessions/".to_string()
+            // Load sandbox metadata from manager state
+            let manager_state = if state_path.exists() {
+                match sandbox::manager::SandboxManager::load_state(state_path) {
+                    Ok(s) => Some(s),
+                    Err(e) => {
+                        log::warn!("Could not load manager state: {}", e);
+                        None
+                    }
+                }
             } else {
-                // Audit specific session
-                format!("./sessions/{}", args.session.as_ref().unwrap())
+                None
             };
 
-            if !std::path::Path::new(&target_path).exists() {
-                eprintln!("Target not found: {}", target_path);
-                return;
-            }
+            // Parse JSONL audit log entries
+            let audit_entries: Vec<serde_json::Value> = if audit_log_path.exists() {
+                std::fs::read_to_string(audit_log_path)
+                    .unwrap_or_default()
+                    .lines()
+                    .filter_map(|line| serde_json::from_str(line).ok())
+                    .collect()
+            } else {
+                Vec::new()
+            };
+
+            // Filter sandbox metadata by session id if requested
+            let sandboxes: Vec<_> = if let Some(ref state) = manager_state {
+                if let Some(ref session_id) = args.session {
+                    state
+                        .sandbox_metadata
+                        .values()
+                        .filter(|m| m.id == *session_id)
+                        .collect()
+                } else {
+                    state.sandbox_metadata.values().collect()
+                }
+            } else {
+                Vec::new()
+            };
+
+            // Filter audit log entries by sandbox id if requested
+            let entries: Vec<_> = if let Some(ref session_id) = args.session {
+                audit_entries
+                    .iter()
+                    .filter(|e| e.get("sandbox_id").and_then(|v| v.as_str()) == Some(session_id))
+                    .collect()
+            } else {
+                audit_entries.iter().collect()
+            };
 
             match args.format.as_str() {
                 "json" => {
-                    println!("Generating JSON audit report...");
-
-                    // Simple JSON structure for now
-                    let json_report = if audit_all {
-                        format!(
-                            "{{\"audit_type\": \"all_sessions\", \"timestamp\": \"{}\", \"sessions_found\": {}}}",
-                            chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
-                            std::fs::read_dir(&target_path)
-                                .map(|d| d.count())
-                                .unwrap_or(0)
-                        )
-                    } else {
-                        format!(
-                            "{{\"audit_type\": \"session\", \"session_id\": \"{}\", \"timestamp\": \"{}\"}}",
-                            args.session.as_ref().unwrap(),
-                            chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
-                        )
-                    };
-
-                    println!("{}", json_report);
-                }
-                "text" | "txt" => {
-                    println!("Generating text audit report...");
-                    println!("==============================");
-
-                    if audit_all {
-                        println!("Auditing all sessions in: {}", target_path);
-
-                        if let Ok(entries) = std::fs::read_dir(&target_path) {
-                            let mut session_count = 0;
-                            for entry in entries.flatten() {
-                                if entry.path().is_dir() {
-                                    session_count += 1;
-                                    println!("- Session: {}", entry.file_name().to_string_lossy());
-                                }
-                            }
-                            println!("\nTotal sessions found: {}", session_count);
-                        }
-                    } else {
-                        println!("Auditing session: {}", args.session.as_ref().unwrap());
-                        println!("Session directory: {}", target_path);
-
-                        // List session files
-                        if let Ok(entries) = std::fs::read_dir(&target_path) {
-                            let mut file_count = 0;
-                            for entry in entries.flatten() {
-                                file_count += 1;
-                                println!("- {}", entry.file_name().to_string_lossy());
-                            }
-                            println!("\nTotal files: {}", file_count);
-                        }
-                    }
-                }
-                "html" => {
-                    println!("🌐 Generating HTML audit report...");
-                    println!("<html><body><h1>Purple AI Sandbox Audit Report</h1>");
-                    println!(
-                        "<p>Generated: {}</p>",
-                        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
-                    );
-
-                    if audit_all {
-                        println!("<h2>All Sessions</h2><ul>");
-                        if let Ok(entries) = std::fs::read_dir(&target_path) {
-                            for entry in entries.flatten() {
-                                if entry.path().is_dir() {
-                                    println!("<li>{}</li>", entry.file_name().to_string_lossy());
-                                }
-                            }
-                        }
-                        println!("</ul>");
-                    } else {
-                        println!("<h2>Session: {}</h2>", args.session.as_ref().unwrap());
-                        println!("<h3>Files:</h3><ul>");
-                        if let Ok(entries) = std::fs::read_dir(&target_path) {
-                            for entry in entries.flatten() {
-                                println!("<li>{}</li>", entry.file_name().to_string_lossy());
-                            }
-                        }
-                        println!("</ul>");
-                    }
-
-                    println!("</body></html>");
+                    let report = serde_json::json!({
+                        "generated_at": chrono::Local::now().to_rfc3339(),
+                        "filter": args.session,
+                        "sandboxes": sandboxes.iter().map(|m| serde_json::json!({
+                            "id": m.id,
+                            "profile": m.profile_name,
+                            "status": format!("{:?}", m.status),
+                            "command": m.command,
+                            "pid": m.pid,
+                        })).collect::<Vec<_>>(),
+                        "audit_events": entries,
+                    });
+                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
                 }
                 _ => {
-                    eprintln!("❌ Unsupported format: {}", args.format);
-                    println!("Supported formats: json, text, html");
+                    println!("Purple AI Sandbox Audit Report");
+                    println!("Generated: {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+                    println!("{}", "=".repeat(60));
+
+                    // Sandbox metadata section
+                    if sandboxes.is_empty() {
+                        println!("No sandbox records found.");
+                        if !state_path.exists() {
+                            println!("(manager state not found at {})", state_path.display());
+                        }
+                    } else {
+                        println!("\nSandbox Records ({} total):", sandboxes.len());
+                        for meta in &sandboxes {
+                            println!("  ID      : {}", meta.id);
+                            println!("  Profile : {}", meta.profile_name);
+                            println!("  Status  : {:?}", meta.status);
+                            println!("  Command : {}", meta.command.join(" "));
+                            if let Some(pid) = meta.pid {
+                                println!("  PID     : {}", pid);
+                            }
+                            println!("  Memory  : {} bytes peak", meta.resource_usage.memory_peak);
+                            println!();
+                        }
+                    }
+
+                    // Audit events section
+                    if entries.is_empty() {
+                        println!("No audit log events found.");
+                        if !audit_log_path.exists() {
+                            println!("(audit log not found at {})", audit_log_path.display());
+                        }
+                    } else {
+                        println!("Audit Events ({} total):", entries.len());
+                        for entry in &entries {
+                            let ts = entry.get("timestamp").and_then(|v| v.as_u64()).unwrap_or(0);
+                            let dt = chrono::DateTime::from_timestamp(ts as i64, 0)
+                                .map(|d| d.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+                                .unwrap_or_else(|| ts.to_string());
+                            let event_type = entry
+                                .get("event_type")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown");
+                            let policy = entry
+                                .get("policy_name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("-");
+                            let status = entry
+                                .get("status")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("-");
+                            println!("  [{}] {} policy={} status={}", dt, event_type, policy, status);
+                        }
+                    }
+
+                    println!("\nAudit complete.");
                 }
             }
-
-            println!("✅ Audit report generation complete!");
         }
         Commands::Serve { address } => {
             let addr: std::net::SocketAddr = address.parse().unwrap_or_else(|e| {
