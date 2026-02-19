@@ -214,21 +214,41 @@ impl CgroupManager {
         }
 
         // Apply I/O limits using cgroup2 io.max interface
-        if let Some(io_limit) = policy.block_io_limit_bytes_per_sec {
+        if policy.block_io_limit.has_limits() {
+            let io_limit = &policy.block_io_limit;
             log::info!(
-                "Setting I/O limit to {} bytes/sec ({} MB/s)",
-                io_limit,
-                io_limit / 1024 / 1024
+                "Setting I/O limits: read_bps={:?}, write_bps={:?}, read_iops={:?}, write_iops={:?}",
+                io_limit.read_bps,
+                io_limit.write_bps,
+                io_limit.read_iops,
+                io_limit.write_iops,
             );
 
-            // For cgroup2, use io.max to set I/O rate limits
-            // Format: "<major>:<minor> <type> <limit>"
-            // Detect root device dynamically
+            // For cgroup2, use io.max to set I/O rate limits.
+            // Format: "<major>:<minor> rbytes=<N|max> wbytes=<N|max> riops=<N|max> wiops=<N|max>"
+            // "max" means no limit for that field.
             if let Some((major, minor)) = Self::detect_root_device() {
+                let rbytes = io_limit
+                    .read_bps
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "max".to_string());
+                let wbytes = io_limit
+                    .write_bps
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "max".to_string());
+                let riops = io_limit
+                    .read_iops
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "max".to_string());
+                let wiops = io_limit
+                    .write_iops
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "max".to_string());
+
                 let io_max_path = self.cgroup_path.join("io.max");
                 let io_max_content = format!(
-                    "{}:{} rbytes={} wbytes={}",
-                    major, minor, io_limit, io_limit
+                    "{}:{} rbytes={} wbytes={} riops={} wiops={}",
+                    major, minor, rbytes, wbytes, riops, wiops
                 );
 
                 match fs::write(io_max_path, io_max_content) {

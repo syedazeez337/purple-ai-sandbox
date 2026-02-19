@@ -137,6 +137,34 @@ pub enum ConditionOp {
     MaskedNotEqual,
 }
 
+/// Detailed disk I/O limits, allowing separate read/write bandwidth and IOPS controls.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct BlockIoLimit {
+    /// Read bandwidth limit (e.g., "100MBps", "1GBps"). Applies to all block devices.
+    pub read_bps: Option<String>,
+    /// Write bandwidth limit (e.g., "50MBps", "500KBps"). Applies to all block devices.
+    pub write_bps: Option<String>,
+    /// Maximum read I/O operations per second.
+    pub read_iops: Option<u64>,
+    /// Maximum write I/O operations per second.
+    pub write_iops: Option<u64>,
+}
+
+/// Disk I/O limit configuration: either a simple aggregate bandwidth string or a detailed struct.
+///
+/// Simple form (backward-compatible): `"100MBps"` — applies the same bandwidth limit to both
+/// read and write operations.
+///
+/// Detailed form: a `BlockIoLimit` struct with independent read/write bandwidth and IOPS fields.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum BlockIoLimitConfig {
+    /// A single aggregate bandwidth limit string (e.g., "100MBps"), applied to both reads and writes.
+    Simple(String),
+    /// Fine-grained disk I/O limits with separate read/write bandwidth and IOPS controls.
+    Detailed(BlockIoLimit),
+}
+
 /// Defines resource limits for the sandbox.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResourcePolicy {
@@ -146,8 +174,9 @@ pub struct ResourcePolicy {
     pub memory_limit_bytes: Option<String>,
     /// Maximum number of processes allowed.
     pub pids_limit: Option<u64>,
-    /// Disk I/O limits (TODO: More detailed structure for disk I/O).
-    pub block_io_limit: Option<String>,
+    /// Disk I/O limits. Accepts either a simple aggregate bandwidth string (e.g., "100MBps") or
+    /// a detailed `BlockIoLimit` struct with separate read/write bandwidth and IOPS limits.
+    pub block_io_limit: Option<BlockIoLimitConfig>,
     /// Session timeout in seconds.
     pub session_timeout_seconds: Option<u64>,
 }

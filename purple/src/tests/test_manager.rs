@@ -29,7 +29,7 @@ fn create_test_policy(name: &str) -> CompiledPolicy {
             cpu_shares: Some(1.0),                 // 1.0 CPU
             memory_limit_bytes: Some(1024 * 1024), // 1MB
             pids_limit: Some(100),
-            block_io_limit_bytes_per_sec: None,
+            block_io_limit: Default::default(),
             session_timeout_seconds: None,
         },
         capabilities: CompiledCapabilityPolicy {

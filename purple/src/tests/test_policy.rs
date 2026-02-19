@@ -361,7 +361,8 @@ fn create_test_policy_with_resources(
             cpu_shares: Some(0.5),
             memory_limit_bytes: memory_limit.map(String::from),
             pids_limit: Some(50),
-            block_io_limit: block_io_limit.map(String::from),
+            block_io_limit: block_io_limit
+                .map(|s| crate::policy::BlockIoLimitConfig::Simple(s.to_string())),
             session_timeout_seconds: None,
         },
         capabilities: CapabilityPolicy {
@@ -449,9 +450,16 @@ fn test_valid_io_formats_accepted() {
         assert!(result.is_ok(), "I/O format '{}' should be accepted", input);
         let compiled = result.unwrap();
         assert_eq!(
-            compiled.resources.block_io_limit_bytes_per_sec,
+            compiled.resources.block_io_limit.read_bps,
             Some(expected),
-            "I/O '{}' should parse to {} bytes/sec",
+            "I/O '{}' should parse read_bps to {} bytes/sec",
+            input,
+            expected
+        );
+        assert_eq!(
+            compiled.resources.block_io_limit.write_bps,
+            Some(expected),
+            "I/O '{}' should parse write_bps to {} bytes/sec",
             input,
             expected
         );
