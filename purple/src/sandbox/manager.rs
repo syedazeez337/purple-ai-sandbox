@@ -91,6 +91,7 @@ pub struct SandboxInstance {
 pub enum SandboxStatus {
     Initializing,
     Running,
+    Paused,
     Completed,
     Failed,
     CleaningUp,
@@ -433,6 +434,82 @@ impl SandboxManager {
         } else {
             Err(PurpleError::SandboxError(format!(
                 "Sandbox {} not found",
+                sandbox_id
+            )))
+        }
+    }
+
+    /// Pause a running sandbox by sending SIGSTOP to its child process.
+    pub fn pause_sandbox(&mut self, sandbox_id: &str) -> Result<()> {
+        let mut sandboxes = self.sandboxes.lock().map_err(|e| {
+            PurpleError::SandboxError(format!("Failed to lock sandbox manager: {}", e))
+        })?;
+
+        let instance = sandboxes.get_mut(sandbox_id).ok_or_else(|| {
+            PurpleError::SandboxError(format!("Sandbox {} not found", sandbox_id))
+        })?;
+
+        if instance.status == SandboxStatus::Paused {
+            return Err(PurpleError::SandboxError(format!(
+                "Sandbox {} is already paused",
+                sandbox_id
+            )));
+        }
+
+        if let Some(pid) = instance.pid {
+            // SAFETY: kill(2) is safe to call with a valid pid and a known signal constant.
+            let ret = unsafe { libc::kill(pid, libc::SIGSTOP) };
+            if ret != 0 {
+                return Err(PurpleError::SandboxError(format!(
+                    "Failed to send SIGSTOP to pid {}: {}",
+                    pid,
+                    std::io::Error::last_os_error()
+                )));
+            }
+            instance.status = SandboxStatus::Paused;
+            log::info!("Paused sandbox {} (pid {})", sandbox_id, pid);
+            Ok(())
+        } else {
+            Err(PurpleError::SandboxError(format!(
+                "Sandbox {} has no tracked process to pause",
+                sandbox_id
+            )))
+        }
+    }
+
+    /// Resume a paused sandbox by sending SIGCONT to its child process.
+    pub fn resume_sandbox(&mut self, sandbox_id: &str) -> Result<()> {
+        let mut sandboxes = self.sandboxes.lock().map_err(|e| {
+            PurpleError::SandboxError(format!("Failed to lock sandbox manager: {}", e))
+        })?;
+
+        let instance = sandboxes.get_mut(sandbox_id).ok_or_else(|| {
+            PurpleError::SandboxError(format!("Sandbox {} not found", sandbox_id))
+        })?;
+
+        if instance.status != SandboxStatus::Paused {
+            return Err(PurpleError::SandboxError(format!(
+                "Sandbox {} is not paused (current status: {:?})",
+                sandbox_id, instance.status
+            )));
+        }
+
+        if let Some(pid) = instance.pid {
+            // SAFETY: kill(2) is safe to call with a valid pid and a known signal constant.
+            let ret = unsafe { libc::kill(pid, libc::SIGCONT) };
+            if ret != 0 {
+                return Err(PurpleError::SandboxError(format!(
+                    "Failed to send SIGCONT to pid {}: {}",
+                    pid,
+                    std::io::Error::last_os_error()
+                )));
+            }
+            instance.status = SandboxStatus::Running;
+            log::info!("Resumed sandbox {} (pid {})", sandbox_id, pid);
+            Ok(())
+        } else {
+            Err(PurpleError::SandboxError(format!(
+                "Sandbox {} has no tracked process to resume",
                 sandbox_id
             )))
         }

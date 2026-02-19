@@ -527,6 +527,74 @@ audit:
                     }
                 }
             }
+            ProfileCommands::Validate { name, format } => {
+                let policy_path = format!("./policies/{}.yaml", name);
+                let policy_path_buf = std::path::PathBuf::from(&policy_path);
+
+                if !policy_path_buf.exists() {
+                    eprintln!("Profile '{}' does not exist", name);
+                    std::process::exit(1);
+                }
+
+                let mut issues: Vec<String> = Vec::new();
+                let mut ok = false;
+
+                match policy::parser::load_policy_from_file(&policy_path_buf) {
+                    Ok(policy) => {
+                        match policy.compile() {
+                            Ok(compiled) => {
+                                ok = true;
+                                if format == "json" {
+                                    let out = serde_json::json!({
+                                        "profile": name,
+                                        "valid": true,
+                                        "issues": [],
+                                        "summary": {
+                                            "syscalls_allowed": compiled.syscalls.allowed_syscall_numbers.len(),
+                                            "memory_limit_bytes": compiled.resources.memory_limit_bytes,
+                                            "network_isolated": compiled.network.isolated,
+                                        }
+                                    });
+                                    println!("{}", serde_json::to_string_pretty(&out).unwrap());
+                                } else {
+                                    println!("Profile: {}", name);
+                                    println!("  Syntax   : OK");
+                                    println!("  Compile  : OK");
+                                    println!("  Syscalls : {} allowed", compiled.syscalls.allowed_syscall_numbers.len());
+                                    if let Some(mem) = compiled.resources.memory_limit_bytes {
+                                        println!("  Memory   : {} bytes", mem);
+                                    }
+                                    println!("  Network  : {}", if compiled.network.isolated { "isolated" } else { "shared" });
+                                    println!("\nProfile '{}' is valid.", name);
+                                }
+                            }
+                            Err(e) => {
+                                issues.push(format!("Compilation error: {}", e));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        issues.push(format!("Parse error: {}", e));
+                    }
+                }
+
+                if !ok {
+                    if format == "json" {
+                        let out = serde_json::json!({
+                            "profile": name,
+                            "valid": false,
+                            "issues": issues,
+                        });
+                        println!("{}", serde_json::to_string_pretty(&out).unwrap());
+                    } else {
+                        eprintln!("Profile '{}' has errors:", name);
+                        for issue in &issues {
+                            eprintln!("  - {}", issue);
+                        }
+                    }
+                    std::process::exit(1);
+                }
+            }
         },
         Commands::Run(args) => {
             let agent_command = args.command.clone();
@@ -1020,6 +1088,30 @@ audit:
                     }
                     Err(e) => {
                         eprintln!("❌ Failed to stop sandbox: {}", e);
+                        std::process::exit(1);
+                    }
+                },
+                SandboxAction::Pause { id } => match manager.pause_sandbox(id) {
+                    Ok(_) => {
+                        println!("⏸  Sandbox '{}' paused", id);
+                        if let Err(e) = manager.save_state(state_path) {
+                            log::warn!("Failed to save manager state: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Failed to pause sandbox: {}", e);
+                        std::process::exit(1);
+                    }
+                },
+                SandboxAction::Resume { id } => match manager.resume_sandbox(id) {
+                    Ok(_) => {
+                        println!("▶  Sandbox '{}' resumed", id);
+                        if let Err(e) = manager.save_state(state_path) {
+                            log::warn!("Failed to save manager state: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Failed to resume sandbox: {}", e);
                         std::process::exit(1);
                     }
                 },

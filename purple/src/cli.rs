@@ -64,6 +64,16 @@ pub enum SandboxAction {
         #[arg(long)]
         id: String,
     },
+    /// Pause a running sandbox (sends SIGSTOP to all processes)
+    Pause {
+        #[arg(long)]
+        id: String,
+    },
+    /// Resume a paused sandbox (sends SIGCONT to all processes)
+    Resume {
+        #[arg(long)]
+        id: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -84,6 +94,14 @@ pub enum ProfileCommands {
     Show {
         /// Name of the profile to show
         name: String,
+    },
+    /// Validate a profile's syntax and policy compilation (dry-run, no sandbox launched)
+    Validate {
+        /// Name of the profile to validate
+        name: String,
+        /// Output format (text or json)
+        #[arg(short, long, default_value = "text")]
+        format: String,
     },
 }
 
