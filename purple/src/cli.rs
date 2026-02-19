@@ -40,6 +40,12 @@ pub enum Commands {
         #[command(subcommand)]
         command: CorrelationCommands,
     },
+    /// Start the Purple REST API server
+    Serve {
+        /// Address to bind the API server to
+        #[arg(short, long, default_value = "127.0.0.1:8080")]
+        address: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]

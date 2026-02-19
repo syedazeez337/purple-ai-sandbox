@@ -1,5 +1,5 @@
 pub mod ai;
-// mod api; // API module disabled - requires more implementation work
+pub mod api;
 pub mod cli;
 pub mod error;
 pub mod policy;
@@ -14,6 +14,7 @@ mod tests;
 use clap::Parser;
 use cli::{Cli, Commands, ProfileCommands, SandboxAction};
 use error::PurpleError;
+use api::server::start_api_server;
 use log::LevelFilter;
 use logging::init_logging;
 use sandbox::{Sandbox, manager::SandboxManager};
@@ -1136,6 +1137,23 @@ audit:
             }
 
             println!("✅ Audit report generation complete!");
+        }
+        Commands::Serve { address } => {
+            let addr: std::net::SocketAddr = address.parse().unwrap_or_else(|e| {
+                eprintln!("Invalid address '{}': {}", address, e);
+                std::process::exit(1);
+            });
+
+            log::info!("Starting Purple API server on {}", addr);
+            println!("Purple API server starting on http://{}", addr);
+            println!("Set PURPLE_API_KEY to configure authentication.");
+            println!("Set PURPLE_ALLOWED_ORIGINS to configure CORS (comma-separated).");
+
+            let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+            if let Err(e) = rt.block_on(start_api_server(addr)) {
+                eprintln!("API server error: {}", e);
+                std::process::exit(1);
+            }
         }
         Commands::Correlation { command } => {
             use correlation::models::CorrelationConfig;

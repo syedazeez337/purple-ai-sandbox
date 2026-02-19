@@ -360,7 +360,7 @@ impl SandboxManager {
         }
     }
 
-    /// Lists all active sandboxes
+    /// Lists all active sandboxes with their status
     pub fn list_sandboxes(&self) -> Result<Vec<(String, SandboxStatus)>> {
         let sandboxes = self.sandboxes.lock().map_err(|e| {
             PurpleError::SandboxError(format!("Failed to lock sandbox manager: {}", e))
@@ -370,6 +370,43 @@ impl SandboxManager {
             .iter()
             .map(|(id, instance)| (id.clone(), instance.status.clone()))
             .collect())
+    }
+
+    /// Lists all active sandboxes with their status and display metadata (for API use)
+    pub fn list_sandboxes_detailed(
+        &self,
+    ) -> Result<Vec<(String, SandboxStatus, SandboxApiMetadata)>> {
+        let sandboxes = self.sandboxes.lock().map_err(|e| {
+            PurpleError::SandboxError(format!("Failed to lock sandbox manager: {}", e))
+        })?;
+
+        Ok(sandboxes
+            .iter()
+            .map(|(id, instance)| {
+                let meta = SandboxApiMetadata::from_instance(id, instance);
+                (id.clone(), instance.status.clone(), meta)
+            })
+            .collect())
+    }
+
+    /// Gets the status and display metadata for a specific sandbox (for API use)
+    pub fn get_sandbox_status_with_metadata(
+        &self,
+        sandbox_id: &str,
+    ) -> Result<(SandboxStatus, SandboxApiMetadata)> {
+        let sandboxes = self.sandboxes.lock().map_err(|e| {
+            PurpleError::SandboxError(format!("Failed to lock sandbox manager: {}", e))
+        })?;
+
+        if let Some(instance) = sandboxes.get(sandbox_id) {
+            let meta = SandboxApiMetadata::from_instance(sandbox_id, instance);
+            Ok((instance.status.clone(), meta))
+        } else {
+            Err(PurpleError::SandboxError(format!(
+                "Sandbox {} not found",
+                sandbox_id
+            )))
+        }
     }
 
     /// Cleans up a completed sandbox
@@ -609,15 +646,22 @@ impl ResourcePoolStatus {
     }
 }
 
-// Implement Clone for SandboxStatus for easier use
-impl Clone for SandboxStatus {
-    fn clone(&self) -> Self {
-        match self {
-            SandboxStatus::Initializing => SandboxStatus::Initializing,
-            SandboxStatus::Running => SandboxStatus::Running,
-            SandboxStatus::Completed => SandboxStatus::Completed,
-            SandboxStatus::Failed => SandboxStatus::Failed,
-            SandboxStatus::CleaningUp => SandboxStatus::CleaningUp,
+/// Display metadata for a sandbox instance, used by the REST API.
+#[derive(Debug, Clone)]
+pub struct SandboxApiMetadata {
+    pub name: String,
+    pub profile_name: String,
+    pub created_at: String,
+}
+
+impl SandboxApiMetadata {
+    pub fn from_instance(_id: &str, instance: &SandboxInstance) -> Self {
+        let created_at = chrono::DateTime::<chrono::Utc>::from(instance.start_time)
+            .to_rfc3339();
+        Self {
+            name: instance.profile_name.clone(),
+            profile_name: instance.profile_name.clone(),
+            created_at,
         }
     }
 }

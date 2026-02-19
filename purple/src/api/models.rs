@@ -2,7 +2,6 @@
 // API models for Purple AI Sandbox
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateSandboxRequest {
@@ -16,10 +15,12 @@ pub struct CreateSandboxResponse {
     pub sandbox_id: String,
     pub name: String,
     pub status: String,
+    pub profile: String,
 }
 
+/// Sandbox status as returned by list and get endpoints.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SandboxStatus {
+pub struct SandboxStatusResponse {
     pub sandbox_id: String,
     pub name: String,
     pub status: String,

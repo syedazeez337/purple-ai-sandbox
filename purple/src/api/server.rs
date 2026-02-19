@@ -11,11 +11,32 @@ use axum::{
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use axum::http::Method;
-use http::header::{ACCEPT, CONTENT_TYPE, AUTHORIZATION};
-use tower_http::cors::{Any, CorsLayer};
-use tower::limit::RateLimitLayer;
-use std::time::Duration;
+use axum::http::{HeaderValue, Method};
+use http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
+use tower_http::cors::CorsLayer;
+
+/// Builds the list of allowed CORS origins.
+///
+/// Sources (highest precedence first):
+/// 1. `PURPLE_ALLOWED_ORIGINS` environment variable — comma-separated list of
+///    fully-qualified origins, e.g. `http://localhost:8080,https://dashboard.example.com`
+/// 2. Hard-coded development defaults: `http://localhost:8080` and
+///    `http://localhost:3000`
+fn allowed_origins() -> Vec<HeaderValue> {
+    let raw = std::env::var("PURPLE_ALLOWED_ORIGINS").unwrap_or_default();
+    if !raw.trim().is_empty() {
+        raw.split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .filter_map(|origin| origin.parse::<HeaderValue>().ok())
+            .collect()
+    } else {
+        vec![
+            "http://localhost:8080".parse().unwrap(),
+            "http://localhost:3000".parse().unwrap(),
+        ]
+    }
+}
 
 pub struct ApiServer {
     address: SocketAddr,
@@ -32,41 +53,32 @@ impl ApiServer {
             sandbox_manager: sandbox_manager.clone(),
         });
 
-        // API key from environment or use a default for development
+        // API key from environment; fall back to a clearly-labeled dev key.
         let api_key = std::env::var("PURPLE_API_KEY")
-            .unwrap_or_else(|_| "default-dev-key-change-in-production".to_string());
+            .unwrap_or_else(|_| {
+                log::warn!(
+                    "PURPLE_API_KEY not set — using insecure development key. \
+                     Set this variable before deploying to production."
+                );
+                "dev-key-change-before-production".to_string()
+            });
 
         let app = Router::new()
-            .route("/sandboxes", post(create_sandbox))
-            .route("/sandboxes", get(list_sandboxes))
-            .route("/sandboxes/:sandbox_id", get(get_sandbox_status))
-            .route("/sandboxes/:sandbox_id", delete(stop_sandbox))
-            .route("/sandboxes/:sandbox_id/exec", post(execute_command))
+            .route("/api/v1/sandboxes", post(create_sandbox))
+            .route("/api/v1/sandboxes", get(list_sandboxes))
+            .route("/api/v1/sandboxes/:sandbox_id", get(get_sandbox_status))
+            .route("/api/v1/sandboxes/:sandbox_id", delete(stop_sandbox))
+            .route("/api/v1/sandboxes/:sandbox_id/exec", post(execute_command))
             .layer(
                 CorsLayer::new()
-                    // Only allow specific origins (whitelist)
-                    .allow_origin(
-                        ["http://localhost:8080", "http://localhost:3000"]
-                            .iter()
-                            .cloned()
-                            .map(|origin| origin.parse().unwrap())
-                            .collect::<Vec<_>>()
-                    )
-                    // Only allow needed methods
-                    .allow_methods([
-                        Method::GET,
-                        Method::POST,
-                        Method::DELETE,
-                    ])
-                    // Only allow needed headers
+                    .allow_origin(allowed_origins())
+                    .allow_methods([Method::GET, Method::POST, Method::DELETE])
                     .allow_headers([CONTENT_TYPE, ACCEPT, AUTHORIZATION])
-                    // Don't allow credentials
                     .allow_credentials(false),
             )
-            // Rate limiting: 10 requests per second per IP
-            .layer(RateLimitLayer::new(10, Duration::from_secs(1)))
-            // Authentication layer
-            .layer(axum::middleware::from_fn(move |req, next| {
+            // Note: For production rate limiting, use a reverse proxy (nginx, caddy, etc.)
+            // Bearer token authentication
+            .layer(axum::middleware::from_fn(move |req: axum::extract::Request, next: axum::middleware::Next| {
                 let api_key = api_key.clone();
                 async move {
                     let auth_header = req
@@ -91,15 +103,20 @@ impl ApiServer {
             }))
             .with_state(app_state);
 
-        log::info!("🚀 Starting API server on {}", self.address);
+        log::info!("Starting Purple API server on {}", self.address);
+        log::info!(
+            "Allowed CORS origins: {:?}",
+            std::env::var("PURPLE_ALLOWED_ORIGINS")
+                .unwrap_or_else(|_| "http://localhost:8080,http://localhost:3000".to_string())
+        );
 
         let listener = tokio::net::TcpListener::bind(self.address)
             .await
-            .map_err(|e| PurpleError::ApiError(format!("Failed to bind to address {}: {}", self.address, e)))?;
+            .map_err(|e| PurpleError::ApiError(format!("Failed to bind {}: {}", self.address, e)))?;
 
         axum::serve(listener, app)
             .await
-            .map_err(|e| PurpleError::ApiError(format!("Server runtime error: {}", e)))?;
+            .map_err(|e| PurpleError::ApiError(format!("Server error: {}", e)))?;
 
         Ok(())
     }

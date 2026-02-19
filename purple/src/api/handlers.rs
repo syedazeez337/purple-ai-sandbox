@@ -4,7 +4,11 @@
 use crate::api::models::*;
 use crate::error::{PurpleError, Result};
 use crate::sandbox::manager::SandboxManager;
-use axum::{extract::{Path, State}, Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    Json,
+};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -16,16 +20,21 @@ pub struct AppState {
 pub async fn create_sandbox(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<CreateSandboxRequest>,
-) -> Result<Json<CreateSandboxResponse>> {
-    let mut manager = app_state
-        .sandbox_manager
-        .lock()
-        .await;
+) -> Result<(StatusCode, Json<CreateSandboxResponse>)> {
+    let mut manager = app_state.sandbox_manager.lock().await;
+
+    // Validate profile name before building the path
+    let profile = payload.profile.trim().to_string();
+    if profile.is_empty() || profile.contains("..") || profile.contains('/') {
+        return Err(PurpleError::PolicyError(
+            "Invalid profile name".to_string(),
+        ));
+    }
 
     // Load and compile policy from profile name
-    let policy_file = format!("./policies/{}.yaml", payload.profile);
+    let policy_file = format!("./policies/{}.yaml", profile);
     let policy = crate::policy::parser::load_policy_from_file(std::path::Path::new(&policy_file))
-        .map_err(|e| PurpleError::PolicyError(format!("Failed to load policy: {}", e)))?
+        .map_err(|e| PurpleError::PolicyError(format!("Failed to load policy '{}': {}", profile, e)))?
         .compile()
         .map_err(|e| PurpleError::PolicyError(e))?;
 
@@ -35,34 +44,32 @@ pub async fn create_sandbox(
         _ => vec!["/bin/echo".to_string(), "Sandbox started".to_string()],
     };
 
-    let sandbox_id = manager.create_sandbox(policy, command)?;
+    let sandbox_id = manager.create_sandbox(policy, command, profile.clone())?;
 
     let response = CreateSandboxResponse {
         sandbox_id,
         name: payload.name,
         status: "created".to_string(),
+        profile,
     };
 
-    Ok(Json(response))
+    Ok((StatusCode::CREATED, Json(response)))
 }
 
 pub async fn list_sandboxes(
     State(app_state): State<Arc<AppState>>,
-) -> Result<Json<Vec<SandboxStatus>>> {
-    let manager = app_state
-        .sandbox_manager
-        .lock()
-        .await;
-    let sandboxes = manager.list_sandboxes();
+) -> Result<Json<Vec<SandboxStatusResponse>>> {
+    let manager = app_state.sandbox_manager.lock().await;
+    let sandboxes = manager.list_sandboxes_detailed()?;
 
     let statuses = sandboxes
         .into_iter()
-        .map(|(id, status)| SandboxStatus {
-            sandbox_id: id.parse().unwrap_or_default(),
-            name: "sandbox".to_string(), // Placeholder - manager doesn't track names
+        .map(|(id, status, metadata)| SandboxStatusResponse {
+            sandbox_id: id,
+            name: metadata.name,
             status: format!("{:?}", status),
-            created_at: chrono::Local::now().to_rfc3339(),
-            profile: "default".to_string(), // Placeholder - manager doesn't track profiles
+            created_at: metadata.created_at,
+            profile: metadata.profile_name,
         })
         .collect();
 
@@ -72,53 +79,43 @@ pub async fn list_sandboxes(
 pub async fn get_sandbox_status(
     State(app_state): State<Arc<AppState>>,
     Path(sandbox_id): Path<Uuid>,
-) -> Result<Json<SandboxStatus>> {
-    let manager = app_state
-        .sandbox_manager
-        .lock()
-        .await;
-    let status = manager.get_sandbox_status(&sandbox_id.to_string())?;
+) -> Result<Json<SandboxStatusResponse>> {
+    let manager = app_state.sandbox_manager.lock().await;
+    let id_str = sandbox_id.to_string();
+    let (status, metadata) = manager.get_sandbox_status_with_metadata(&id_str)?;
 
-    let status_response = SandboxStatus {
-        sandbox_id,
-        name: "sandbox".to_string(), // Placeholder - manager doesn't track names
+    let response = SandboxStatusResponse {
+        sandbox_id: id_str,
+        name: metadata.name,
         status: format!("{:?}", status),
-        created_at: chrono::Local::now().to_rfc3339(),
-        profile: "default".to_string(), // Placeholder - manager doesn't track profiles
+        created_at: metadata.created_at,
+        profile: metadata.profile_name,
     };
 
-    Ok(Json(status_response))
+    Ok(Json(response))
 }
 
 pub async fn stop_sandbox(
     State(app_state): State<Arc<AppState>>,
     Path(sandbox_id): Path<Uuid>,
-) -> Result<Json<()>> {
-    let mut manager = app_state
-        .sandbox_manager
-        .lock()
-        .await;
+) -> Result<StatusCode> {
+    let mut manager = app_state.sandbox_manager.lock().await;
     manager.cleanup_sandbox(&sandbox_id.to_string())?;
-    Ok(Json(()))
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn execute_command(
     State(app_state): State<Arc<AppState>>,
     Path(sandbox_id): Path<Uuid>,
-    Json(payload): Json<ExecuteCommandRequest>,
+    Json(_payload): Json<ExecuteCommandRequest>,
 ) -> Result<Json<ExecuteCommandResponse>> {
-    let mut manager = app_state
-        .sandbox_manager
-        .lock()
-        .await;
-
-    // Execute the sandbox and get exit code
+    let manager = app_state.sandbox_manager.lock().await;
     let exit_code = manager.execute_sandbox(&sandbox_id.to_string())?;
 
     let response = ExecuteCommandResponse {
         exit_code,
-        stdout: "Command executed via sandbox".to_string(),
-        stderr: "".to_string(),
+        stdout: String::new(),
+        stderr: String::new(),
     };
 
     Ok(Json(response))
