@@ -4,9 +4,8 @@
 // These tests verify that security policies are actually enforced, not just logged.
 
 use crate::policy::compiler::{
-    CompiledAuditPolicy, CompiledBlockIoLimit, CompiledCapabilityPolicy,
-    CompiledFilesystemPolicy, CompiledNetworkPolicy, CompiledPolicy, CompiledResourcePolicy,
-    CompiledSyscallPolicy,
+    CompiledAuditPolicy, CompiledBlockIoLimit, CompiledCapabilityPolicy, CompiledFilesystemPolicy,
+    CompiledNetworkPolicy, CompiledPolicy, CompiledResourcePolicy, CompiledSyscallPolicy,
 };
 use crate::sandbox::Sandbox;
 use crate::sandbox::cgroups::{CgroupManager, generate_sandbox_id};

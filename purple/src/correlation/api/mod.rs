@@ -19,10 +19,10 @@ use crate::correlation::{
     storage::CorrelationStorageTrait,
 };
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::StatusCode,
     routing::{get, post},
-    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -299,10 +299,7 @@ pub fn create_router(state: ApiState) -> Router {
 }
 
 /// Start a standalone correlation API server (used for testing / dedicated deployments).
-pub async fn start_api(
-    state: ApiState,
-    address: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn start_api(state: ApiState, address: &str) -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new().nest("/api/v1/correlation", create_router(state));
 
     let listener = tokio::net::TcpListener::bind(address).await?;

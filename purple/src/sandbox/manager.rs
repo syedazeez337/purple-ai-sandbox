@@ -733,8 +733,7 @@ pub struct SandboxApiMetadata {
 
 impl SandboxApiMetadata {
     pub fn from_instance(_id: &str, instance: &SandboxInstance) -> Self {
-        let created_at = chrono::DateTime::<chrono::Utc>::from(instance.start_time)
-            .to_rfc3339();
+        let created_at = chrono::DateTime::<chrono::Utc>::from(instance.start_time).to_rfc3339();
         Self {
             name: instance.profile_name.clone(),
             profile_name: instance.profile_name.clone(),

@@ -11,10 +11,10 @@ pub mod correlation;
 #[cfg(test)]
 mod tests;
 
+use api::server::start_api_server;
 use clap::Parser;
 use cli::{Cli, Commands, ProfileCommands, SandboxAction};
 use error::PurpleError;
-use api::server::start_api_server;
 use log::LevelFilter;
 use logging::init_logging;
 use sandbox::{Sandbox, manager::SandboxManager};
@@ -540,39 +540,47 @@ audit:
                 let mut ok = false;
 
                 match policy::parser::load_policy_from_file(&policy_path_buf) {
-                    Ok(policy) => {
-                        match policy.compile() {
-                            Ok(compiled) => {
-                                ok = true;
-                                if format == "json" {
-                                    let out = serde_json::json!({
-                                        "profile": name,
-                                        "valid": true,
-                                        "issues": [],
-                                        "summary": {
-                                            "syscalls_allowed": compiled.syscalls.allowed_syscall_numbers.len(),
-                                            "memory_limit_bytes": compiled.resources.memory_limit_bytes,
-                                            "network_isolated": compiled.network.isolated,
-                                        }
-                                    });
-                                    println!("{}", serde_json::to_string_pretty(&out).unwrap());
-                                } else {
-                                    println!("Profile: {}", name);
-                                    println!("  Syntax   : OK");
-                                    println!("  Compile  : OK");
-                                    println!("  Syscalls : {} allowed", compiled.syscalls.allowed_syscall_numbers.len());
-                                    if let Some(mem) = compiled.resources.memory_limit_bytes {
-                                        println!("  Memory   : {} bytes", mem);
+                    Ok(policy) => match policy.compile() {
+                        Ok(compiled) => {
+                            ok = true;
+                            if format == "json" {
+                                let out = serde_json::json!({
+                                    "profile": name,
+                                    "valid": true,
+                                    "issues": [],
+                                    "summary": {
+                                        "syscalls_allowed": compiled.syscalls.allowed_syscall_numbers.len(),
+                                        "memory_limit_bytes": compiled.resources.memory_limit_bytes,
+                                        "network_isolated": compiled.network.isolated,
                                     }
-                                    println!("  Network  : {}", if compiled.network.isolated { "isolated" } else { "shared" });
-                                    println!("\nProfile '{}' is valid.", name);
+                                });
+                                println!("{}", serde_json::to_string_pretty(&out).unwrap());
+                            } else {
+                                println!("Profile: {}", name);
+                                println!("  Syntax   : OK");
+                                println!("  Compile  : OK");
+                                println!(
+                                    "  Syscalls : {} allowed",
+                                    compiled.syscalls.allowed_syscall_numbers.len()
+                                );
+                                if let Some(mem) = compiled.resources.memory_limit_bytes {
+                                    println!("  Memory   : {} bytes", mem);
                                 }
-                            }
-                            Err(e) => {
-                                issues.push(format!("Compilation error: {}", e));
+                                println!(
+                                    "  Network  : {}",
+                                    if compiled.network.isolated {
+                                        "isolated"
+                                    } else {
+                                        "shared"
+                                    }
+                                );
+                                println!("\nProfile '{}' is valid.", name);
                             }
                         }
-                    }
+                        Err(e) => {
+                            issues.push(format!("Compilation error: {}", e));
+                        }
+                    },
                     Err(e) => {
                         issues.push(format!("Parse error: {}", e));
                     }
@@ -1188,7 +1196,10 @@ audit:
                 }
                 _ => {
                     println!("Purple AI Sandbox Audit Report");
-                    println!("Generated: {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+                    println!(
+                        "Generated: {}",
+                        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+                    );
                     println!("{}", "=".repeat(60));
 
                     // Sandbox metadata section
@@ -1233,11 +1244,12 @@ audit:
                                 .get("policy_name")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("-");
-                            let status = entry
-                                .get("status")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("-");
-                            println!("  [{}] {} policy={} status={}", dt, event_type, policy, status);
+                            let status =
+                                entry.get("status").and_then(|v| v.as_str()).unwrap_or("-");
+                            println!(
+                                "  [{}] {} policy={} status={}",
+                                dt, event_type, policy, status
+                            );
                         }
                     }
 

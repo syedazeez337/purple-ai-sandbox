@@ -597,46 +597,43 @@ impl Policy {
             None
         };
 
-        let compiled_block_io_limit =
-            match &self.resources.block_io_limit {
-                None => CompiledBlockIoLimit::default(),
-                Some(super::BlockIoLimitConfig::Simple(rate_str)) => {
-                    let bps = parse_io_rate(rate_str)
-                        .map_err(|e| format!("Invalid block_io_limit '{}': {}", rate_str, e))?;
-                    CompiledBlockIoLimit {
-                        read_bps: Some(bps),
-                        write_bps: Some(bps),
-                        read_iops: None,
-                        write_iops: None,
-                    }
+        let compiled_block_io_limit = match &self.resources.block_io_limit {
+            None => CompiledBlockIoLimit::default(),
+            Some(super::BlockIoLimitConfig::Simple(rate_str)) => {
+                let bps = parse_io_rate(rate_str)
+                    .map_err(|e| format!("Invalid block_io_limit '{}': {}", rate_str, e))?;
+                CompiledBlockIoLimit {
+                    read_bps: Some(bps),
+                    write_bps: Some(bps),
+                    read_iops: None,
+                    write_iops: None,
                 }
-                Some(super::BlockIoLimitConfig::Detailed(limit)) => {
-                    let read_bps = limit
-                        .read_bps
-                        .as_deref()
-                        .map(|s| {
-                            parse_io_rate(s).map_err(|e| {
-                                format!("Invalid block_io_limit.read_bps '{}': {}", s, e)
-                            })
-                        })
-                        .transpose()?;
-                    let write_bps = limit
-                        .write_bps
-                        .as_deref()
-                        .map(|s| {
-                            parse_io_rate(s).map_err(|e| {
-                                format!("Invalid block_io_limit.write_bps '{}': {}", s, e)
-                            })
-                        })
-                        .transpose()?;
-                    CompiledBlockIoLimit {
-                        read_bps,
-                        write_bps,
-                        read_iops: limit.read_iops,
-                        write_iops: limit.write_iops,
-                    }
+            }
+            Some(super::BlockIoLimitConfig::Detailed(limit)) => {
+                let read_bps = limit
+                    .read_bps
+                    .as_deref()
+                    .map(|s| {
+                        parse_io_rate(s)
+                            .map_err(|e| format!("Invalid block_io_limit.read_bps '{}': {}", s, e))
+                    })
+                    .transpose()?;
+                let write_bps = limit
+                    .write_bps
+                    .as_deref()
+                    .map(|s| {
+                        parse_io_rate(s)
+                            .map_err(|e| format!("Invalid block_io_limit.write_bps '{}': {}", s, e))
+                    })
+                    .transpose()?;
+                CompiledBlockIoLimit {
+                    read_bps,
+                    write_bps,
+                    read_iops: limit.read_iops,
+                    write_iops: limit.write_iops,
                 }
-            };
+            }
+        };
 
         let compiled_resources = CompiledResourcePolicy {
             cpu_shares: self.resources.cpu_shares,

@@ -5,9 +5,9 @@ use crate::api::models::*;
 use crate::error::{PurpleError, Result};
 use crate::sandbox::manager::SandboxManager;
 use axum::{
+    Json,
     extract::{Path, State},
     http::StatusCode,
-    Json,
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -26,15 +26,15 @@ pub async fn create_sandbox(
     // Validate profile name before building the path
     let profile = payload.profile.trim().to_string();
     if profile.is_empty() || profile.contains("..") || profile.contains('/') {
-        return Err(PurpleError::PolicyError(
-            "Invalid profile name".to_string(),
-        ));
+        return Err(PurpleError::PolicyError("Invalid profile name".to_string()));
     }
 
     // Load and compile policy from profile name
     let policy_file = format!("./policies/{}.yaml", profile);
     let policy = crate::policy::parser::load_policy_from_file(std::path::Path::new(&policy_file))
-        .map_err(|e| PurpleError::PolicyError(format!("Failed to load policy '{}': {}", profile, e)))?
+        .map_err(|e| {
+            PurpleError::PolicyError(format!("Failed to load policy '{}': {}", profile, e))
+        })?
         .compile()
         .map_err(|e| PurpleError::PolicyError(e))?;
 

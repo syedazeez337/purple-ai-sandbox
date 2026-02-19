@@ -4,15 +4,15 @@
 use crate::api::handlers::*;
 use crate::error::{PurpleError, Result};
 use crate::sandbox::manager::SandboxManager;
+use axum::http::{HeaderValue, Method};
 use axum::{
-    routing::{delete, get, post},
     Router,
+    routing::{delete, get, post},
 };
+use http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use axum::http::{HeaderValue, Method};
-use http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use tower_http::cors::CorsLayer;
 
 /// Builds the list of allowed CORS origins.
@@ -54,14 +54,13 @@ impl ApiServer {
         });
 
         // API key from environment; fall back to a clearly-labeled dev key.
-        let api_key = std::env::var("PURPLE_API_KEY")
-            .unwrap_or_else(|_| {
-                log::warn!(
-                    "PURPLE_API_KEY not set — using insecure development key. \
+        let api_key = std::env::var("PURPLE_API_KEY").unwrap_or_else(|_| {
+            log::warn!(
+                "PURPLE_API_KEY not set — using insecure development key. \
                      Set this variable before deploying to production."
-                );
-                "dev-key-change-before-production".to_string()
-            });
+            );
+            "dev-key-change-before-production".to_string()
+        });
 
         let app = Router::new()
             .route("/api/v1/sandboxes", post(create_sandbox))
@@ -78,29 +77,31 @@ impl ApiServer {
             )
             // Note: For production rate limiting, use a reverse proxy (nginx, caddy, etc.)
             // Bearer token authentication
-            .layer(axum::middleware::from_fn(move |req: axum::extract::Request, next: axum::middleware::Next| {
-                let api_key = api_key.clone();
-                async move {
-                    let auth_header = req
-                        .headers()
-                        .get("Authorization")
-                        .and_then(|v| v.to_str().ok());
+            .layer(axum::middleware::from_fn(
+                move |req: axum::extract::Request, next: axum::middleware::Next| {
+                    let api_key = api_key.clone();
+                    async move {
+                        let auth_header = req
+                            .headers()
+                            .get("Authorization")
+                            .and_then(|v| v.to_str().ok());
 
-                    match auth_header {
-                        Some(key) if key == format!("Bearer {}", api_key) => {
-                            Ok(next.run(req).await)
+                        match auth_header {
+                            Some(key) if key == format!("Bearer {}", api_key) => {
+                                Ok(next.run(req).await)
+                            }
+                            Some(_) => Err((
+                                axum::http::StatusCode::UNAUTHORIZED,
+                                "Invalid API key".to_string(),
+                            )),
+                            None => Err((
+                                axum::http::StatusCode::UNAUTHORIZED,
+                                "Missing Authorization header".to_string(),
+                            )),
                         }
-                        Some(_) => Err((
-                            axum::http::StatusCode::UNAUTHORIZED,
-                            "Invalid API key".to_string(),
-                        )),
-                        None => Err((
-                            axum::http::StatusCode::UNAUTHORIZED,
-                            "Missing Authorization header".to_string(),
-                        )),
                     }
-                }
-            }))
+                },
+            ))
             .with_state(app_state);
 
         log::info!("Starting Purple API server on {}", self.address);
@@ -112,7 +113,9 @@ impl ApiServer {
 
         let listener = tokio::net::TcpListener::bind(self.address)
             .await
-            .map_err(|e| PurpleError::ApiError(format!("Failed to bind {}: {}", self.address, e)))?;
+            .map_err(|e| {
+                PurpleError::ApiError(format!("Failed to bind {}: {}", self.address, e))
+            })?;
 
         axum::serve(listener, app)
             .await
