@@ -86,7 +86,7 @@ pub struct SandboxInstance {
 }
 
 /// Current status of a sandbox
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub enum SandboxStatus {
     Initializing,
